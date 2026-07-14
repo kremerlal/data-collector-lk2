@@ -94,6 +94,45 @@ dbx bundle validate -t "$TARGET" "${VAR_ARGS[@]}"
 echo "==> Deploying app (sync + create/update)..."
 dbx bundle deploy -t "$TARGET" "${VAR_ARGS[@]}"
 
+# Bundle TF replaces app resources with only what's in data-collector.app.yml (sql-warehouse).
+# Postgres/Lakebase is not supported in bundle schema yet — re-attach via Apps API.
+ENSURE_LAKEBASE="${ENSURE_LAKEBASE_APP_RESOURCE:-}"
+if [[ -z "$ENSURE_LAKEBASE" ]]; then
+  if [[ "$TARGET" == "prod" ]]; then
+    ENSURE_LAKEBASE=true
+  else
+    ENSURE_LAKEBASE=false
+  fi
+fi
+if [[ "$ENSURE_LAKEBASE" == "true" || "$ENSURE_LAKEBASE" == "1" ]]; then
+  RESOLVED_APP_NAME="${APP_NAME:-}"
+  if [[ -z "$RESOLVED_APP_NAME" ]]; then
+    if [[ "$TARGET" == "prod" ]]; then
+      RESOLVED_APP_NAME="data-collector-prod"
+    else
+      RESOLVED_APP_NAME="data-collector-dev"
+    fi
+  fi
+  PYTHON_BIN="python3"
+  if [[ -x .venv/bin/python ]]; then
+    PYTHON_BIN=".venv/bin/python"
+  fi
+  LAKEBASE_ARGS=()
+  if [[ -n "${LAKEBASE_BRANCH:-}" ]]; then
+    LAKEBASE_ARGS+=(--lakebase-branch "$LAKEBASE_BRANCH")
+  fi
+  if [[ -n "${LAKEBASE_DATABASE:-}" ]]; then
+    LAKEBASE_ARGS+=(--lakebase-database "$LAKEBASE_DATABASE")
+  fi
+  if [[ -n "$PROFILE" ]]; then
+    LAKEBASE_ARGS+=(--profile "$PROFILE")
+  fi
+  "$PYTHON_BIN" scripts/ensure_app_lakebase_resource.py \
+    --app-name "$RESOLVED_APP_NAME" \
+    --warehouse-id "$WAREHOUSE_ID" \
+    "${LAKEBASE_ARGS[@]}"
+fi
+
 echo "==> Starting app..."
 dbx bundle run data-collector -t "$TARGET" "${VAR_ARGS[@]}"
 
@@ -104,6 +143,9 @@ if [[ "$TARGET" == "dev" ]]; then
 else
   echo "Bundle files synced under: ${DEPLOY_FOLDER}/data-collector/${TARGET}"
 fi
+echo ""
+echo "Lakebase: prod deploy re-attaches the database app resource automatically"
+echo "(ENSURE_LAKEBASE_APP_RESOURCE=false to skip). See docs/LAKEBASE.md."
 echo ""
 echo "If /api returns permission errors, grant the app service principal"
 echo "USE CATALOG / SELECT on your metadata schema and collection tables."

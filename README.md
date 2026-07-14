@@ -102,7 +102,8 @@ data-collector/
 ├── scripts/
 │   ├── setup.py          # Provision metadata via SQL warehouse
 │   ├── setup.sh
-│   └── deploy.sh         # Bundle deploy to /Workspace/DBRX-Apps
+│   ├── deploy.sh         # Bundle deploy to /Workspace/DBRX-Apps
+│   └── ensure_app_lakebase_resource.py  # Re-attach Lakebase after bundle deploy
 ├── resources/data-collector.app.yml
 ├── databricks.yml        # Asset bundle config
 ├── src/
@@ -121,31 +122,109 @@ data-collector/
 
 Based on the **dhs-ophammer** bundle flow. One script builds, creates the workspace folder, and deploys.
 
-### 1. Configure workspace auth
+### Deployment configuration reference
 
-Edit `databricks.yml` → set `targets.dev.workspace.host` (and `targets.prod` profile/host if needed).
+Copy `.env.example` to `.env` and set values for your workspace. `scripts/deploy.sh` sources `.env` automatically.
 
-Create a Databricks CLI profile (one-time):
+#### Required (`.env`)
+
+| Variable | Used by | Description |
+|----------|---------|-------------|
+| `DATABRICKS_WAREHOUSE_ID` | `deploy.sh`, `app.yaml`, runtime | SQL warehouse id the app binds to (`CAN_USE`). Synced into `app.yaml` before each deploy. |
+
+#### CLI auth (`.env` or `~/.databrickscfg`)
+
+| Variable | Used by | Description |
+|----------|---------|-------------|
+| `DATABRICKS_CONFIG_PROFILE` | `deploy.sh`, `ensure_app_lakebase_resource.py` | Databricks CLI profile name. **Prod defaults to `fvm`** if unset. Dev uses your default profile if unset. |
+| `DATABRICKS_HOST` | `setup.sh`, local dev | Workspace URL (e.g. `https://fevm-serverless-stable-tgnklq.cloud.databricks.com`). |
+| `DATABRICKS_TOKEN` | `setup.sh`, local dev | Personal access token for provisioning and local API calls. Not used by the deployed app (service principal). |
+
+Configure the CLI profile once:
 
 ```bash
 echo "dapi<your-token>" | databricks configure \
   --host "https://<workspace>.cloud.databricks.com" \
-  --profile data-collector
+  --profile fvm
 ```
 
-In `.env`:
+#### Optional deploy overrides (`.env`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABRICKS_DEPLOY_FOLDER` | `/Workspace/DBRX-Apps` | Workspace folder for bundle artifacts. Created by `deploy.sh` if missing. |
+| `DATABRICKS_APP_NAME` | `data-collector-dev` / `data-collector-prod` | Override deployed app name per target. |
+| `DATABRICKS_TF_EXEC_PATH` | system `terraform` | Path to Terraform binary (workaround for CLI PGP key issues). |
+| `DATABRICKS_TF_VERSION` | auto-detected | Terraform version string for bundle. |
+
+#### Unity Catalog metadata (`.env` for setup; `app.yaml` at runtime)
+
+Keep these aligned across `.env`, `databricks.yml`, and `app.yaml`:
+
+| Variable / `app.yaml` env | Default | Description |
+|---------------------------|---------|-------------|
+| `DATABRICKS_CATALOG` / `DATABRICKS_CATALOG` | `serverless_stable_tgnklq_catalog` | UC catalog for app metadata tables (`projects`, `field_definitions`, etc.). |
+| `DATABRICKS_SCHEMA` / `DATABRICKS_SCHEMA` | `data_collector` | UC schema for app metadata. |
+
+Provision metadata tables once per workspace:
 
 ```bash
-DATABRICKS_HOST=https://<workspace>.cloud.databricks.com
-DATABRICKS_TOKEN=dapi...
-DATABRICKS_WAREHOUSE_ID=<warehouse-id>
-DATABRICKS_CONFIG_PROFILE=data-collector
-
-# Optional — default /Workspace/DBRX-Apps (created automatically)
-DATABRICKS_DEPLOY_FOLDER=/Workspace/DBRX-Apps
+./scripts/setup.sh
 ```
 
-`deploy.sh` syncs `DATABRICKS_WAREHOUSE_ID` into `app.yaml` before each deploy.
+#### Lakebase (optional — collections with `storage_type: lakebase`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENSURE_LAKEBASE_APP_RESOURCE` | `true` for prod, `false` for dev | After `bundle deploy`, run `ensure_app_lakebase_resource.py` to re-attach the database app resource. |
+| `LAKEBASE_BRANCH` | `projects/data-collector/branches/production` | Lakebase branch resource path for the `database` app resource. |
+| `LAKEBASE_DATABASE` | `projects/data-collector/branches/production/databases/databricks-postgres` | Lakebase database resource path. |
+| `LAKEBASE_DEFAULT_SCHEMA` | `data_collector` | Postgres schema name for Lakebase collections (set in `app.yaml`). |
+
+`app.yaml` resolves `ENDPOINT_NAME` from the `database` app resource (`valueFrom: database`). Prod deploy re-attaches that resource automatically; see [Lakebase](#4-lakebase-database-resource-optional).
+
+#### `databricks.yml` (edit once per workspace)
+
+| Setting | Location | Default (this workspace) |
+|---------|----------|--------------------------|
+| Workspace host | `targets.dev.workspace.host` | `https://fevm-serverless-stable-tgnklq.cloud.databricks.com` |
+| Prod CLI profile | `targets.prod.workspace.profile` | `fvm` |
+| App name (dev) | `targets.dev.variables.app_name` | `data-collector-dev` |
+| App name (prod) | `targets.prod.variables.app_name` | `data-collector-prod` |
+| Warehouse id | `variables.warehouse_id` / per-target | `3c333bc7e0c36cd6` |
+| Catalog / schema | `variables.catalog` / `variables.schema` | `serverless_stable_tgnklq_catalog` / `data_collector` |
+| Lakebase paths | `variables.lakebase_branch` / `lakebase_database` | See Lakebase table above |
+
+#### Example `.env` for deploy
+
+```bash
+# Required
+DATABRICKS_WAREHOUSE_ID=3c333bc7e0c36cd6
+
+# CLI (prod uses profile fvm by default)
+DATABRICKS_CONFIG_PROFILE=fvm
+DATABRICKS_HOST=https://fevm-serverless-stable-tgnklq.cloud.databricks.com
+DATABRICKS_TOKEN=dapi...
+
+# Metadata (setup + keep in sync with app.yaml)
+DATABRICKS_CATALOG=serverless_stable_tgnklq_catalog
+DATABRICKS_SCHEMA=data_collector
+
+# Optional overrides
+# DATABRICKS_DEPLOY_FOLDER=/Workspace/DBRX-Apps
+# DATABRICKS_APP_NAME=data-collector-prod
+
+# Lakebase (prod re-attaches automatically)
+# LAKEBASE_BRANCH=projects/data-collector/branches/production
+# LAKEBASE_DATABASE=projects/data-collector/branches/production/databases/databricks-postgres
+# ENSURE_LAKEBASE_APP_RESOURCE=true
+```
+
+### 1. Configure workspace auth
+
+Edit `databricks.yml` → set `targets.dev.workspace.host` (and `targets.prod.workspace.profile` if not `fvm`).
+
+Create a Databricks CLI profile if you have not already (see [CLI auth](#cli-auth-env-or-databrickscfg) above).
 
 Provision metadata tables first (once per workspace):
 
@@ -163,8 +242,11 @@ npm run deploy:prod     # prod
 The script will:
 
 1. `mkdirs` the deploy folder (e.g. `/Workspace/DBRX-Apps`)
-2. `npm run build`
-3. `databricks bundle validate` → `deploy` → `run`
+2. Sync `DATABRICKS_WAREHOUSE_ID` into `app.yaml`
+3. `npm run build`
+4. `databricks bundle validate` → `deploy`
+5. Re-attach Lakebase `database` app resource on prod (if `ENSURE_LAKEBASE_APP_RESOURCE` is enabled)
+6. `databricks bundle run` to start the app
 
 ### 3. Grant Unity Catalog permissions (required)
 
@@ -200,16 +282,11 @@ Use the **client id UUID** in backticks — the display name (`app-xxxxx data-co
 
 **Grant users access to the app:** Compute → Apps → your app → **Permissions** → add users/groups with **Can use**.
 
-### 4. Add Lakebase database resource (optional)
+### 4. Lakebase database resource (optional)
 
 Required only if you want collections with **Storage → Lakebase (Postgres)**. App metadata still lives in UC Delta; record tables can live in Lakebase.
 
-1. Create a **Lakebase Postgres** project in the workspace (app switcher → Lakebase Postgres).
-2. **Compute → Apps →** your app → **Edit**
-3. **App resources → + Add resource → Database**
-4. Select your Lakebase project, branch (e.g. `production`), and database (`databricks_postgres`)
-5. Permission: **Can connect and create**
-6. Resource key: keep default **`database`** (must match `app.yaml` `valueFrom: database`)
+Create a **Lakebase Postgres** project in the workspace (app switcher → Lakebase Postgres). For this workspace: project `data-collector`, branch `production`, database `databricks_postgres`, resource key **`database`**.
 
 `app.yaml` already includes:
 
@@ -221,15 +298,15 @@ env:
     value: data_collector
 ```
 
-Databricks injects `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPORT`, `PGSSLMODE`. `ENDPOINT_NAME` is resolved from the database resource for OAuth token rotation.
-
-7. **Redeploy** after adding the resource:
+**Prod deploy re-attaches the database resource automatically.** Bundle Terraform only manages `sql_warehouse` in `resources/data-collector.app.yml` and would drop Lakebase on every deploy; `scripts/deploy.sh` runs `ensure_app_lakebase_resource.py` after `bundle deploy` to restore it via the Apps API.
 
 ```bash
 npm run deploy:prod
 ```
 
-8. **Verify:** open the app → **Settings** → `Lakebase configured` should be **yes**.
+Override paths in `.env` if needed (`LAKEBASE_BRANCH`, `LAKEBASE_DATABASE`). Set `ENSURE_LAKEBASE_APP_RESOURCE=false` to skip.
+
+**Verify:** open the app → **Settings** → `Lakebase configured` should be **yes**.
 
 See [docs/LAKEBASE.md](docs/LAKEBASE.md) for local dev connection vars and limitations (Genie is UC-only).
 
@@ -253,7 +330,7 @@ For local dev, set `DEV_USER_EMAIL=you@company.com` in `.env` so collections mat
 | `openpgp: key expired` on bundle deploy | Upgrade Databricks CLI or use system Terraform (`DATABRICKS_TF_EXEC_PATH`) |
 | Internal Server Error on Collections | UC grants for service principal client id |
 | Empty collections in prod | Add your email to `project_members` or set `DEV_USER_EMAIL` locally |
-| Lakebase option fails on create | Add database app resource + redeploy; check Settings |
+| Lakebase option fails on create | Redeploy with latest `deploy.sh` (auto re-attaches database); check Settings |
 
 ## Related documentation
 

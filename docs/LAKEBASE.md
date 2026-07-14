@@ -6,14 +6,43 @@ Full deployment steps (UC grants, app permissions, Lakebase resource) are in [RE
 
 ## Deployed app (Databricks Apps)
 
-### 1. Add the database app resource
+### 1. Lakebase database app resource
 
-1. Create a **Lakebase Postgres** project in the workspace (if you do not have one).
-2. **Compute → Apps →** your app → **Edit**
-3. **App resources → + Add resource → Database**
-4. Select project, branch (e.g. `production`), and database (`databricks_postgres`)
-5. Permission: **Can connect and create**
-6. Resource key: **`database`** (must match `valueFrom` in `app.yaml`)
+Create a **Lakebase Postgres** project in the workspace (if you do not have one).
+
+For this workspace:
+
+| Field | Value |
+|-------|--------|
+| Project | `data-collector` |
+| Branch | `production` |
+| Database | `databricks_postgres` |
+| Resource key | `database` (must match `valueFrom` in `app.yaml`) |
+
+**Prod deploy re-attaches this automatically.** `scripts/deploy.sh` runs `ensure_app_lakebase_resource.py` after `bundle deploy` because bundle Terraform only supports `sql_warehouse` in `resources/data-collector.app.yml` — it cannot declare `postgres` yet and would drop the database resource on every deploy.
+
+Optional `.env` overrides (defaults match `databricks.yml`):
+
+```bash
+LAKEBASE_BRANCH=projects/data-collector/branches/production
+LAKEBASE_DATABASE=projects/data-collector/branches/production/databases/databricks-postgres
+ENSURE_LAKEBASE_APP_RESOURCE=true   # prod default; set false to skip
+```
+
+Manual one-time setup (or if you deploy without `deploy.sh`):
+
+1. **Compute → Apps →** your app → **Edit**
+2. **App resources → + Add resource → Database**
+3. Select project / branch / database above, permission **Can connect and create**, key **`database`**
+
+Or run:
+
+```bash
+python3 scripts/ensure_app_lakebase_resource.py \
+  --app-name data-collector-prod \
+  --warehouse-id "$DATABRICKS_WAREHOUSE_ID" \
+  --profile fvm
+```
 
 Databricks creates a Postgres role for the app's service principal and injects `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPORT`, `PGSSLMODE`.
 

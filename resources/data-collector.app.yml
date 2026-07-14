@@ -10,8 +10,5 @@ resources:
           sql_warehouse:
             id: ${var.warehouse_id}
             permission: CAN_USE
-        - name: database
-          postgres:
-            branch: ${var.lakebase_branch}
-            database: ${var.lakebase_database}
-            permission: CAN_CONNECT_AND_CREATE
+        # Lakebase postgres: not supported in bundle TF yet. deploy.sh runs
+        # scripts/ensure_app_lakebase_resource.py after bundle deploy to re-attach it.
