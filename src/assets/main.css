@@ -41,6 +41,17 @@ a:hover {
   text-decoration: underline;
 }
 
+body.app-busy,
+body.app-busy * {
+  cursor: wait !important;
+}
+
+body.app-busy button,
+body.app-busy a,
+body.app-busy [role='button'] {
+  pointer-events: none;
+}
+
 .text-muted {
   color: var(--p-text-muted-color);
 }

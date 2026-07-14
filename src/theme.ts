@@ -13,6 +13,7 @@ const DHS_PRIMARY_DARK_CONTENT = {
   main: '#7dd3fc',
   light: '#bae6fd',
   dark: '#005288',
+  contrastText: '#0c2340',
 };
 
 /** MUI theme for the content area — synced with Scorecard content-theme toggle. */
@@ -42,6 +43,16 @@ export function getTheme(mode: ColorMode): Theme {
       MuiButton: {
         styleOverrides: {
           root: { fontWeight: 600, textTransform: 'none' },
+          containedPrimary: ({ theme }) =>
+            theme.palette.mode === 'dark'
+              ? {
+                  backgroundColor: DHS_PRIMARY.main,
+                  color: '#ffffff',
+                  '&:hover': {
+                    backgroundColor: DHS_PRIMARY.light,
+                  },
+                }
+              : {},
         },
       },
       MuiPaper: {

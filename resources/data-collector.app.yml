@@ -1,0 +1,12 @@
+resources:
+  apps:
+    data-collector:
+      name: ${var.app_name}
+      description: "Data Collector — forms, lookups, and UC-backed collections (${bundle.target})"
+      # Source is the repo root (app.yaml, backend/, dist/).
+      source_code_path: ..
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE

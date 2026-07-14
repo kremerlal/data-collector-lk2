@@ -7,9 +7,21 @@ command:
   - 8000
 
 env:
-  - name: DATABRICKS_SQL_WAREHOUSE_HTTP_PATH
-    value: /sql/1.0/warehouses/REPLACE_WITH_YOUR_WAREHOUSE_ID
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
   - name: DATABRICKS_CATALOG
-    value: main
+    value: serverless_stable_tgnklq_catalog
   - name: DATABRICKS_SCHEMA
     value: data_collector
+  # ENDPOINT_NAME resolved from the "database" app resource (added in Apps UI).
+  - name: ENDPOINT_NAME
+    valueFrom: database
+  - name: LAKEBASE_DEFAULT_SCHEMA
+    value: data_collector
+
+# sql-warehouse resource — deploy.sh syncs warehouse id before bundle deploy.
+resources:
+  - name: sql-warehouse
+    sql_warehouse:
+      id: "3c333bc7e0c36cd6"
+      permission: CAN_USE

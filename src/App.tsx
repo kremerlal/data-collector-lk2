@@ -1,21 +1,24 @@
-import { useState } from 'react';
-import AppShell, { AppView } from './components/layout/AppShell';
-import DashboardView from './components/dashboard/DashboardView';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import AppShell from './components/layout/AppShell';
 import CollectionsView from './components/collections/CollectionsView';
-import SettingsView from './components/settings/SettingsView';
+import DashboardView from './components/dashboard/DashboardView';
 import HelpView from './components/help/HelpView';
+import ProjectWorkspace from './components/projects/ProjectWorkspace';
+import SettingsView from './components/settings/SettingsView';
 
-const App = () => {
-  const [currentView, setCurrentView] = useState<AppView>('dashboard');
-
-  return (
-    <AppShell currentView={currentView} onViewChange={setCurrentView}>
-      {currentView === 'dashboard' && <DashboardView />}
-      {currentView === 'collections' && <CollectionsView />}
-      {currentView === 'settings' && <SettingsView />}
-      {currentView === 'help' && <HelpView />}
-    </AppShell>
-  );
-};
+const App = () => (
+  <BrowserRouter>
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route index element={<DashboardView />} />
+        <Route path="collections" element={<CollectionsView />} />
+        <Route path="collections/:projectId" element={<ProjectWorkspace />} />
+        <Route path="settings" element={<SettingsView />} />
+        <Route path="help" element={<HelpView />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  </BrowserRouter>
+);
 
 export default App;

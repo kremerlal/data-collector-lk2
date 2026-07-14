@@ -1,0 +1,368 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
+
+from backend import audit_repository, config, repository
+from backend import lookup_repository
+from backend.csv_util import parse_records_csv, records_to_csv
+from backend.deps import project_to_summary, require_role
+from backend.validation import build_lookup_allowed, validate_record_values
+from backend.models import (
+    AddMemberRequest,
+    CreateProjectRequest,
+    CreateRecordRequest,
+    FieldDefinition,
+    ImportRecordError,
+    ImportRecordsCsvRequest,
+    ImportRecordsResult,
+    ProjectDetail,
+    ProjectMember,
+    ProjectSummary,
+    RecordAuditEntry,
+    RecordRow,
+    SaveFieldsRequest,
+    UpdateProjectRequest,
+    UpdateRecordRequest,
+)
+
+router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _resolve_storage_targets(
+    *,
+    storage_type: str,
+    name: str,
+    target_catalog: str | None = None,
+    target_schema: str | None = None,
+    target_table: str | None = None,
+) -> dict[str, str]:
+    if storage_type == "lakebase":
+        from backend import lakebase_config
+
+        try:
+            lakebase_config.require_configured()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        schema = (target_schema or lakebase_config.default_schema()).strip()
+        table = (target_table or f"{repository.slugify(name)}_data").strip()
+        return {
+            "target_catalog": lakebase_config.database_name(),
+            "target_schema": config.validate_identifier(schema, "schema"),
+            "target_table": config.validate_identifier(table, "table"),
+        }
+
+    return _validate_storage_targets(
+        target_catalog=target_catalog or config.DEFAULT_DATA_CATALOG,
+        target_schema=target_schema or config.DEFAULT_DATA_SCHEMA,
+        target_table=target_table or f"{repository.slugify(name)}_data",
+    )
+
+
+def _validate_storage_targets(
+    *,
+    target_catalog: str | None = None,
+    target_schema: str | None = None,
+    target_table: str | None = None,
+) -> dict[str, str]:
+    validated: dict[str, str] = {}
+    if target_catalog is not None:
+        validated["target_catalog"] = config.validate_identifier(target_catalog.strip(), "catalog")
+    if target_schema is not None:
+        validated["target_schema"] = config.validate_identifier(target_schema.strip(), "schema")
+    if target_table is not None:
+        validated["target_table"] = config.validate_identifier(target_table.strip(), "table")
+    return validated
+
+
+def _detail(project_id: str, role) -> ProjectDetail:
+    project = repository.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    summary = project_to_summary(project, role)
+    return ProjectDetail(
+        **summary,
+        target_catalog=project.get("target_catalog"),
+        target_schema=project.get("target_schema"),
+        target_table=project.get("target_table"),
+        genie_space_id=project.get("genie_space_id"),
+        genie_status=project.get("genie_status"),
+        genie_last_synced_at=project.get("genie_last_synced_at"),
+        genie_error=project.get("genie_error"),
+        members=repository.list_members(project_id),
+        fields=repository.list_fields(project_id),
+        lookups=lookup_repository.list_lookups(project_id),
+    )
+
+
+@router.get("", response_model=list[ProjectSummary])
+def list_projects(request: Request):
+    from backend import auth
+
+    user = auth.get_user_email(request)
+    rows = repository.list_projects_for_user(user)
+    return [ProjectSummary(**project_to_summary(row, row.get("role"))) for row in rows]
+
+
+@router.post("", response_model=ProjectDetail, status_code=201)
+def create_project(body: CreateProjectRequest, request: Request):
+    from backend import auth
+
+    user = auth.get_user_email(request)
+    try:
+        storage = _resolve_storage_targets(
+            storage_type=body.storage_type,
+            name=body.name.strip(),
+            target_catalog=body.target_catalog,
+            target_schema=body.target_schema,
+            target_table=body.target_table,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    project = repository.create_project(
+        name=body.name.strip(),
+        description=body.description,
+        storage_type=body.storage_type,
+        target_catalog=storage["target_catalog"],
+        target_schema=storage["target_schema"],
+        target_table=storage["target_table"],
+        created_by=user,
+    )
+    return _detail(project["project_id"], "admin")
+
+
+@router.get("/{project_id}", response_model=ProjectDetail)
+def get_project(project_id: str, request: Request):
+    _, role = require_role(project_id, request, "reader")
+    return _detail(project_id, role)
+
+
+@router.patch("/{project_id}", response_model=ProjectDetail)
+def update_project(project_id: str, body: UpdateProjectRequest, request: Request):
+    user, role = require_role(project_id, request, "admin")
+    updates = body.model_dump(exclude_unset=True)
+
+    storage_keys = {"storage_type", "target_catalog", "target_schema", "target_table"}
+    if storage_keys & updates.keys():
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.get("status") == "published":
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot change storage location after the collection is published",
+            )
+        effective_storage_type = updates.get("storage_type", project.get("storage_type"))
+        try:
+            storage_updates = _resolve_storage_targets(
+                storage_type=effective_storage_type,
+                name=project["name"],
+                target_catalog=updates.get("target_catalog", project.get("target_catalog")),
+                target_schema=updates.get("target_schema", project.get("target_schema")),
+                target_table=updates.get("target_table", project.get("target_table")),
+            )
+            if "storage_type" in updates:
+                storage_updates["storage_type"] = effective_storage_type
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for key in list(updates.keys()):
+            if key in storage_keys:
+                del updates[key]
+        updates.update(storage_updates)
+
+    if updates:
+        repository.update_project(project_id, updates, user)
+    return _detail(project_id, role)
+
+
+@router.get("/{project_id}/members", response_model=list[ProjectMember])
+def list_members(project_id: str, request: Request):
+    require_role(project_id, request, "admin")
+    return repository.list_members(project_id)
+
+
+@router.post("/{project_id}/members", response_model=list[ProjectMember], status_code=201)
+def add_member(project_id: str, body: AddMemberRequest, request: Request):
+    user, _ = require_role(project_id, request, "admin")
+    repository.add_member(project_id, body.user_email, body.role, user)
+    return repository.list_members(project_id)
+
+
+@router.delete("/{project_id}/members/{user_email}", response_model=list[ProjectMember])
+def remove_member(project_id: str, user_email: str, request: Request):
+    current_user, _ = require_role(project_id, request, "admin")
+    if user_email.lower() == current_user.lower():
+        admins = [m for m in repository.list_members(project_id) if m.role == "admin"]
+        if len(admins) <= 1:
+            raise HTTPException(status_code=400, detail="Cannot remove the only admin")
+    repository.remove_member(project_id, user_email)
+    return repository.list_members(project_id)
+
+
+@router.get("/{project_id}/fields", response_model=list[FieldDefinition])
+def list_fields(project_id: str, request: Request, published_only: bool = False):
+    require_role(project_id, request, "reader")
+    return repository.list_fields(project_id, published_only=published_only)
+
+
+@router.put("/{project_id}/fields", response_model=list[FieldDefinition])
+def save_fields(project_id: str, body: SaveFieldsRequest, request: Request):
+    user, _ = require_role(project_id, request, "admin")
+    repository.replace_draft_fields(project_id, body.fields, user)
+    return repository.list_fields(project_id)
+
+
+@router.post("/{project_id}/publish", response_model=ProjectDetail)
+def publish_project(project_id: str, request: Request):
+    user, role = require_role(project_id, request, "admin")
+    try:
+        repository.publish_project(project_id, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _detail(project_id, role)
+
+
+def _validate_record_values(project_id: str, fields, values: dict) -> None:
+    lookup_allowed = build_lookup_allowed(fields, project_id)
+    errors = validate_record_values(fields, values, lookup_allowed=lookup_allowed)
+    if errors:
+        raise HTTPException(status_code=422, detail={"field_errors": errors})
+
+
+@router.get("/{project_id}/records", response_model=list[RecordRow])
+def list_records(project_id: str, request: Request):
+    require_role(project_id, request, "reader")
+    project = repository.get_project(project_id)
+    if not project or project["status"] != "published":
+        return []
+    fields = repository.list_fields(project_id, published_only=True)
+    return [RecordRow(**row) for row in repository.list_records(project, fields)]
+
+
+@router.post("/{project_id}/records", response_model=RecordRow, status_code=201)
+def create_record(project_id: str, body: CreateRecordRequest, request: Request):
+    user, _ = require_role(project_id, request, "editor")
+    project = repository.get_project(project_id)
+    if not project or project["status"] != "published":
+        raise HTTPException(status_code=400, detail="Project must be published before adding records")
+    fields = repository.list_fields(project_id, published_only=True)
+    _validate_record_values(project_id, fields, body.values)
+    row = repository.create_record(project, fields, body.values, user)
+    audit_repository.log_record_created(project_id, row["record_id"], body.values, changed_by=user)
+    return RecordRow(**row)
+
+
+@router.patch("/{project_id}/records/{record_id}", response_model=RecordRow)
+def update_record(project_id: str, record_id: str, body: UpdateRecordRequest, request: Request):
+    user, _ = require_role(project_id, request, "editor")
+    project = repository.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fields = repository.list_fields(project_id, published_only=True)
+    existing = repository.get_record(project, fields, record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Record not found")
+    _validate_record_values(project_id, fields, body.values)
+    repository.update_record(project, fields, record_id, body.values, user)
+    audit_repository.log_record_updated(
+        project_id,
+        record_id,
+        existing["values"],
+        body.values,
+        changed_by=user,
+    )
+    updated = repository.get_record(project, fields, record_id)
+    return RecordRow(**updated)  # type: ignore[arg-type]
+
+
+@router.delete("/{project_id}/records/{record_id}", status_code=204)
+def delete_record(project_id: str, record_id: str, request: Request):
+    user, _ = require_role(project_id, request, "editor")
+    project = repository.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fields = repository.list_fields(project_id, published_only=True)
+    existing = repository.get_record(project, fields, record_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Record not found")
+    repository.delete_record(project, record_id)
+    audit_repository.log_record_deleted(
+        project_id,
+        record_id,
+        existing["values"],
+        changed_by=user,
+    )
+
+
+def _field_label_map(fields: list[FieldDefinition]) -> dict[str, str]:
+    return {f.field_key: f.label for f in fields}
+
+
+@router.get("/{project_id}/records/{record_id}/audit", response_model=list[RecordAuditEntry])
+def get_record_audit(project_id: str, record_id: str, request: Request):
+    require_role(project_id, request, "reader")
+    project = repository.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fields = repository.list_fields(project_id, published_only=True)
+    if not repository.get_record(project, fields, record_id):
+        raise HTTPException(status_code=404, detail="Record not found")
+    labels = _field_label_map(fields)
+    rows = audit_repository.list_record_audit(project_id, record_id)
+    return [
+        RecordAuditEntry(
+            field_key=row.get("field_key"),
+            field_label=labels.get(row["field_key"]) if row.get("field_key") else None,
+            old_value=row.get("old_value"),
+            new_value=row.get("new_value"),
+            changed_by=row["changed_by"],
+            changed_at=row["changed_at"],
+        )
+        for row in rows
+    ]
+
+
+@router.get("/{project_id}/records/export")
+def export_records(project_id: str, request: Request):
+    require_role(project_id, request, "reader")
+    project = repository.get_project(project_id)
+    if not project or project["status"] != "published":
+        raise HTTPException(status_code=400, detail="Project must be published to export records")
+    fields = repository.list_fields(project_id, published_only=True)
+    field_keys = [f.field_key for f in fields]
+    rows = repository.list_records(project, fields)
+    csv_text = records_to_csv(field_keys, rows)
+    filename = f"{project['slug']}_records.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/{project_id}/records/import", response_model=ImportRecordsResult)
+def import_records(project_id: str, body: ImportRecordsCsvRequest, request: Request):
+    user, _ = require_role(project_id, request, "editor")
+    project = repository.get_project(project_id)
+    if not project or project["status"] != "published":
+        raise HTTPException(status_code=400, detail="Project must be published before importing records")
+    fields = repository.list_fields(project_id, published_only=True)
+    field_keys = [f.field_key for f in fields]
+    try:
+        parsed = parse_records_csv(body.csv, field_keys)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    lookup_allowed = build_lookup_allowed(fields, project_id)
+    created = 0
+    failed: list[ImportRecordError] = []
+    for row_num, values in enumerate(parsed, start=2):
+        errors = validate_record_values(fields, values, lookup_allowed=lookup_allowed)
+        if errors:
+            failed.append(ImportRecordError(row=row_num, field_errors=errors))
+            continue
+        row = repository.create_record(project, fields, values, user)
+        audit_repository.log_record_created(project_id, row["record_id"], values, changed_by=user)
+        created += 1
+    return ImportRecordsResult(created=created, failed=failed)
