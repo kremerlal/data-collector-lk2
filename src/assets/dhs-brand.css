@@ -1,0 +1,121 @@
+/**
+ * DHS.gov-inspired brand tokens (colors from official USWDS/DHS assets).
+ * @see https://www.dhs.gov/
+ */
+:root {
+  --app-chrome-bg: #f8f9fb;
+  --dhs-navy: #0c2340;
+  --dhs-navy-mid: #112e51;
+  --dhs-blue: #005288;
+  --dhs-blue-light: #0078ae;
+  --dhs-red: #c41230;
+  --dhs-green: #5e9732;
+  --dhs-gray-90: #1b1b1b;
+  --dhs-gray-60: #5c5c5c;
+  --dhs-gray-10: #f0f0f0;
+  --dhs-header-bg: linear-gradient(180deg, #0c2340 0%, #112e51 100%);
+  --dhs-sidebar-bg: linear-gradient(165deg, #0c2340 0%, #112e51 48%, #0c2a46 100%);
+  --dhs-content-hero-bg: linear-gradient(135deg, #0c2340 0%, #005288 55%, #0078ae 100%);
+
+  /* Content-area tokens (light default) */
+  --p-surface-ground: #f8f9fb;
+  --p-surface-0: #ffffff;
+  --p-surface-200: #e5e7eb;
+  --p-surface-border: #e2e8f0;
+  --p-text-color: #1b1b1b;
+  --p-text-muted-color: #5c5c5c;
+  --p-primary-color: #005288;
+}
+
+.dhs-site-header {
+  background: var(--dhs-header-bg);
+  color: #fff;
+  border-bottom: 3px solid var(--dhs-blue-light);
+}
+
+.dhs-site-header__inner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+}
+
+.dhs-site-header__logo-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.dhs-site-header__logo-link:hover {
+  text-decoration: none;
+  opacity: 0.95;
+}
+
+.dhs-site-header__seal {
+  height: 48px;
+  width: auto;
+}
+
+.dhs-site-header__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.dhs-site-header__agency {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+}
+
+.dhs-site-header__app {
+  font-family: 'Source Serif 4', 'Source Sans 3', serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.dhs-site-header__tagline {
+  font-size: 0.8125rem;
+  opacity: 0.75;
+  margin: 0;
+}
+
+.dhs-site-header__tagline--side {
+  flex: 1;
+  min-width: 12rem;
+  margin-left: auto;
+  text-align: right;
+  align-self: center;
+}
+
+.dhs-site-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.dhs-site-header__inner {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .dhs-site-header__tagline--side {
+    display: none;
+  }
+
+  .dhs-site-header__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

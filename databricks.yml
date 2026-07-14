@@ -1,0 +1,60 @@
+bundle:
+  name: data-collector
+
+include:
+  - resources/*.yml
+
+sync:
+  include:
+    - dist/**
+  exclude:
+    - node_modules
+    - src
+    - public
+    - scripts
+    - resources
+    - /databricks.yml
+    - /package.json
+    - /package-lock.json
+    - /vite.config.ts
+    - /tsconfig.json
+    - /.npmrc
+    - /.databricksignore
+    - "*.md"
+    - /.env.example
+
+variables:
+  app_name:
+    description: Deployed Databricks App name.
+    default: data-collector-dev
+  warehouse_id:
+    description: SQL warehouse id the app connects to.
+    default: REPLACE_WITH_YOUR_WAREHOUSE_ID
+  catalog:
+    description: Unity Catalog catalog for data collector tables.
+    default: main
+  schema:
+    description: Schema within the catalog.
+    default: data_collector
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: https://REPLACE_WITH_YOUR_WORKSPACE.cloud.databricks.com
+    variables:
+      app_name: data-collector-dev
+      warehouse_id: REPLACE_WITH_YOUR_WAREHOUSE_ID
+      catalog: main
+      schema: data_collector
+
+  prod:
+    mode: production
+    workspace:
+      profile: DEFAULT
+    variables:
+      app_name: data-collector-prod
+      warehouse_id: REPLACE_WITH_YOUR_WAREHOUSE_ID
+      catalog: main
+      schema: data_collector

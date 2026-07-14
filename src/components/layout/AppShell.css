@@ -1,0 +1,350 @@
+.app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--app-chrome-bg);
+}
+
+.app-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.mobile-menu-btn {
+  display: none;
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 20;
+  min-width: 44px;
+  min-height: 44px;
+  background: var(--p-surface-0) !important;
+  box-shadow: 0 1px 2px rgba(20, 21, 25, 0.06), 0 2px 8px rgba(20, 21, 25, 0.08);
+  border: 1px solid var(--p-surface-200);
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 30;
+}
+
+.sidebar {
+  width: 260px;
+  background: var(--dhs-sidebar-bg);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.3s ease, transform 0.3s ease;
+}
+
+.sidebar.collapsed {
+  width: 68px;
+}
+
+.sidebar-header {
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.sidebar.collapsed .sidebar-header {
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0.5rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  min-width: 0;
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.sidebar.collapsed .brand {
+  justify-content: center;
+}
+
+.brand-seal {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+.brand-wordmark {
+  display: block;
+  width: 100%;
+  max-width: 210px;
+  height: auto;
+  max-height: 2.5rem;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sidebar-icon-btn {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.sidebar-icon-btn:hover {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.sidebar-app-label {
+  margin: 0;
+  padding: 0.5rem 1rem 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.nav-links {
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  color: rgba(255, 255, 255, 0.65);
+  text-decoration: none;
+  min-height: 44px;
+  border-left: 3px solid transparent;
+  font-weight: 500;
+  background: none;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.sidebar.collapsed .nav-link {
+  justify-content: center;
+  padding: 0.75rem;
+  border-left: none;
+}
+
+.nav-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  text-decoration: none;
+}
+
+.nav-link.active {
+  background: rgba(0, 120, 174, 0.25);
+  color: #cce4f2;
+  border-left-color: var(--dhs-blue-light);
+}
+
+.nav-link svg {
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.sidebar-footer {
+  padding: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.sidebar.collapsed .theme-toggle {
+  justify-content: center;
+  padding-inline: 0.35rem;
+}
+
+.dhs-footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+}
+
+.dhs-footer-link:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.user-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--app-chrome-bg);
+  overflow: hidden;
+}
+
+.main-content--dark {
+  background: var(--dhs-navy);
+}
+
+.main-content-inner {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content-inner.content-theme-dark {
+  min-height: 100%;
+}
+
+.main-toolbar {
+  flex-shrink: 0;
+  width: 100%;
+  z-index: 30;
+}
+
+.main-toolbar .dhs-site-header {
+  box-shadow: 0 2px 8px rgba(12, 35, 64, 0.2);
+}
+
+.main-content-body {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.main-content-body.constrained {
+  margin-inline: auto;
+  padding: 1.5rem;
+}
+
+.close-mobile-btn {
+  display: none;
+}
+
+@media (min-width: 1280px) {
+  .main-content-body.constrained {
+    max-width: 72rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 40;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar .collapse-btn {
+    display: none;
+  }
+
+  .sidebar .close-mobile-btn {
+    display: inline-flex;
+  }
+
+  .main-content {
+    padding-top: 0.25rem;
+  }
+}
+
+/* Header action buttons on navy background */
+.dhs-site-header__actions .MuiButton-outlined {
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+
+.dhs-site-header__actions .MuiButton-outlined:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #fff;
+  color: #fff;
+}
+
+.dhs-site-header__actions .MuiButton-contained {
+  background: var(--dhs-blue);
+}
+
+.dhs-site-header__actions .MuiButton-contained:hover {
+  background: var(--dhs-blue-light);
+}

@@ -1,0 +1,43 @@
+# Files excluded from `databricks sync` (Databricks Apps deploy).
+# The runtime only needs app.yaml + backend/ + requirements.txt + dist/.
+# We prebuild dist locally before sync, so JS sources / package.json
+# stay out so the server doesn't try to re-run npm install.
+
+node_modules/
+.DS_Store
+.databricks/
+__pycache__/
+.venv/
+*.pyc
+
+# Reference data and screenshots
+checkit.png
+thisone.png
+*.csv
+
+# Frontend source — ship prebuilt dist/ instead
+src/
+public/
+package.json
+package-lock.json
+vite.config.ts
+tsconfig.json
+/index.html
+.npmrc
+
+# Local env (never ship local secrets/config to the workspace)
+.env
+
+# Dev/deploy tooling not needed by the running app
+databricks.yml
+resources/
+scripts/
+sql/
+DEPLOYMENT.md
+README.md
+.env.example
+
+# Misc
+.git/
+.gitignore
+ClaudePrompt-OpHammer.md
