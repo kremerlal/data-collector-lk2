@@ -15,6 +15,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import AddIcon from '@mui/icons-material/Add';
 import { useProjects } from '../../hooks/useProjects';
 import CreateProjectWizard from './CreateProjectWizard';
+import DataEntryUrl from '../common/DataEntryUrl';
 
 export default function CollectionsView() {
   const { projects, loading, error, refresh } = useProjects();
@@ -47,6 +48,7 @@ export default function CollectionsView() {
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell>
+              <TableCell>Data entry URL</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Your role</TableCell>
               <TableCell>Storage</TableCell>
@@ -56,7 +58,7 @@ export default function CollectionsView() {
           <TableBody>
             {loading && (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <CircularProgress size={18} />
                     Loading collections…
@@ -66,7 +68,7 @@ export default function CollectionsView() {
             )}
             {!loading && projects.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   No collections yet. Create one to design a form and start collecting data.
                 </TableCell>
               </TableRow>
@@ -80,6 +82,15 @@ export default function CollectionsView() {
                   {project.description && (
                     <Typography variant="caption" display="block" color="text.secondary">
                       {project.description}
+                    </Typography>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {project.status === 'published' ? (
+                    <DataEntryUrl projectId={project.project_id} />
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      Publish first
                     </Typography>
                   )}
                 </TableCell>

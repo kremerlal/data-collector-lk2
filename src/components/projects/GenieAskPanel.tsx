@@ -86,7 +86,7 @@ export default function GenieAskPanel({ project, isAdmin }: GenieAskPanelProps) 
     : ['How many records are in this collection?', 'Show all records'];
 
   return (
-    <Paper className="page-card" sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 480 }}>
+    <Paper className="page-card" sx={{ p: 2.5, display: 'flex', flexDirection: 'column', minHeight: 560 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <AutoAwesomeIcon color="primary" fontSize="small" />
         <Typography variant="subtitle1" fontWeight={600}>
@@ -121,7 +121,7 @@ export default function GenieAskPanel({ project, isAdmin }: GenieAskPanelProps) 
         </Alert>
       )}
 
-      <Box sx={{ flex: 1, overflow: 'auto', mb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', mb: 2, display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 320 }}>
         {messages.length === 0 && (
           <Typography variant="body2" color="text.secondary">
             Try a suggested question below or type your own.

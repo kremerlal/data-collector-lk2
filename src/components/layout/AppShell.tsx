@@ -57,7 +57,13 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 function resolveHeader(pathname: string) {
-  if (pathname.startsWith('/collections/')) {
+  if (pathname.includes('/data')) {
+    return {
+      title: 'Data entry',
+      tagline: 'View and manage collection records',
+    };
+  }
+  if (pathname.match(/^\/collections\/[^/]+$/)) {
     return {
       title: 'Collection workspace',
       tagline: 'Design forms, manage members, and edit records',

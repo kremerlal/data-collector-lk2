@@ -16,12 +16,10 @@ import type { FieldDefinition, ProjectDetail, RecordAuditEntry, RecordRow } from
 import { validateRecordValues } from '../../lib/recordValidation';
 import BusyButton from '../common/BusyButton';
 import DynamicForm from './DynamicForm';
-import GenieAskPanel from './GenieAskPanel';
 
 interface RecordsPanelProps {
   project: ProjectDetail;
   canEdit: boolean;
-  isAdmin?: boolean;
 }
 
 function formatAuditValue(value: string | null | undefined): string {
@@ -48,7 +46,7 @@ function formatAuditTime(iso: string): string {
   }
 }
 
-export default function RecordsPanel({ project, canEdit, isAdmin = false }: RecordsPanelProps) {
+export default function RecordsPanel({ project, canEdit }: RecordsPanelProps) {
   const [publishedFields, setPublishedFields] = useState<FieldDefinition[]>([]);
   const [records, setRecords] = useState<RecordRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -335,32 +333,21 @@ export default function RecordsPanel({ project, canEdit, isAdmin = false }: Reco
         </Alert>
       )}
 
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: '1.4fr 1fr' },
-          gap: 2,
-          flex: 1,
-          minHeight: 400,
-        }}
-      >
-        <Box sx={{ minHeight: 400 }}>
-          <DataGrid
-            key={`records-${project.schema_version}-${publishedFields.length}`}
-            rows={gridRows}
-            columns={columns}
-            loading={loading}
-            onRowClick={(params) => {
-              const record = records.find((r) => r.record_id === params.id);
-              if (record && canEdit) openEdit(record);
-            }}
-            disableRowSelectionOnClick
-            pageSizeOptions={[10, 25, 50]}
-            initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
-            sx={{ height: '100%', minHeight: 400 }}
-          />
-        </Box>
-        <GenieAskPanel project={project} isAdmin={isAdmin} />
+      <Box sx={{ minHeight: 480 }}>
+        <DataGrid
+          key={`records-${project.schema_version}-${publishedFields.length}`}
+          rows={gridRows}
+          columns={columns}
+          loading={loading}
+          onRowClick={(params) => {
+            const record = records.find((r) => r.record_id === params.id);
+            if (record && canEdit) openEdit(record);
+          }}
+          disableRowSelectionOnClick
+          pageSizeOptions={[10, 25, 50]}
+          initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
+          sx={{ height: 520, width: '100%' }}
+        />
       </Box>
 
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)} PaperProps={{ sx: { width: 420, p: 3 } }}>

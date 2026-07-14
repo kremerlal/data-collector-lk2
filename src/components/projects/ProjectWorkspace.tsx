@@ -21,8 +21,10 @@ import LookupsPanel from './LookupsPanel';
 import MembersPanel from './MembersPanel';
 import RecordsPanel from './RecordsPanel';
 import StorageSettingsPanel from './StorageSettingsPanel';
+import GenieAskPanel from './GenieAskPanel';
+import DataEntryUrl from '../common/DataEntryUrl';
 
-type TabKey = 'records' | 'designer' | 'lookups' | 'members' | 'settings';
+type TabKey = 'records' | 'designer' | 'lookups' | 'members' | 'settings' | 'genie';
 
 export default function ProjectWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -59,6 +61,7 @@ export default function ProjectWorkspace() {
   }
   if (error || !project) return <Typography color="error">{error || 'Project not found'}</Typography>;
 
+  const showGenieTab = project.storage_type === 'uc_delta';
   const setTab = (value: TabKey) => setSearchParams({ tab: value });
 
   const saveDesign = async () => {
@@ -134,8 +137,13 @@ export default function ProjectWorkspace() {
               {project.target_catalog}.{project.target_schema}.{project.target_table}
             </Typography>
           </Box>
+          {project.status === 'published' && (
+            <Box sx={{ mt: 1.5, maxWidth: 720 }}>
+              <DataEntryUrl projectId={project.project_id} variant="full" />
+            </Box>
+          )}
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {tab === 'designer' && isAdmin && (
             <>
               <BusyButton variant="outlined" onClick={saveDesign} busy={saving} busyLabel="Saving…">
@@ -156,6 +164,9 @@ export default function ProjectWorkspace() {
         <Tab value="designer" label="Form designer" />
         <Tab value="lookups" label="Lookup tables" />
         <Tab value="records" label="Records" disabled={project.status !== 'published' && !canEdit} />
+        {showGenieTab && (
+          <Tab value="genie" label="Genie Q&A" disabled={project.status !== 'published'} />
+        )}
         <Tab value="members" label="Members" disabled={!isAdmin} />
         <Tab value="settings" label="Settings" disabled={!isAdmin} />
       </Tabs>
@@ -197,7 +208,10 @@ export default function ProjectWorkspace() {
         <LookupsPanel project={project} isAdmin={!!isAdmin} onChanged={refresh} />
       )}
 
-      {tab === 'records' && <RecordsPanel project={project} canEdit={!!canEdit} isAdmin={!!isAdmin} />}
+      {tab === 'records' && <RecordsPanel project={project} canEdit={!!canEdit} />}
+      {tab === 'genie' && showGenieTab && (
+        <GenieAskPanel project={project} isAdmin={!!isAdmin} />
+      )}
       {tab === 'members' && isAdmin && <MembersPanel project={project} onChanged={refresh} />}
       {tab === 'settings' && isAdmin && (
         <StorageSettingsPanel project={project} onSaved={refresh} />

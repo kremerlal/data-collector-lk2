@@ -13,15 +13,20 @@ env:
     value: serverless_stable_tgnklq_catalog
   - name: DATABRICKS_SCHEMA
     value: data_collector
-  # ENDPOINT_NAME resolved from the "database" app resource (added in Apps UI).
+  # ENDPOINT_NAME resolved from the "database" Lakebase resource below.
   - name: ENDPOINT_NAME
     valueFrom: database
   - name: LAKEBASE_DEFAULT_SCHEMA
     value: data_collector
 
-# sql-warehouse resource — deploy.sh syncs warehouse id before bundle deploy.
+# sql-warehouse + Lakebase database resources (deploy.sh syncs warehouse id before bundle deploy).
 resources:
   - name: sql-warehouse
     sql_warehouse:
       id: "3c333bc7e0c36cd6"
       permission: CAN_USE
+  - name: database
+    postgres:
+      branch: projects/data-collector/branches/production
+      database: projects/data-collector/branches/production/databases/databricks-postgres
+      permission: CAN_CONNECT_AND_CREATE
