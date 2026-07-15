@@ -12,6 +12,7 @@ import Typography from '@mui/material/Typography';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { useProject } from '../../hooks/useProjects';
 import { collectionAdminPath } from '../../lib/collectionPaths';
+import { showGenieTab } from '../../lib/genie';
 import type { CollectionDataTab } from '../../lib/collectionPaths';
 import GenieAskPanel from './GenieAskPanel';
 import RecordsPanel from './RecordsPanel';
@@ -52,7 +53,7 @@ export default function CollectionDataView() {
 
   const canEdit = project.role === 'admin' || project.role === 'editor';
   const isAdmin = project.role === 'admin';
-  const showGenieTab = project.storage_type === 'uc_delta';
+  const showGenieTabForProject = showGenieTab(project);
   const roleLabel =
     project.role === 'admin' ? 'Editor (admin)' : project.role === 'editor' ? 'Editor' : 'Viewer';
 
@@ -118,13 +119,13 @@ export default function CollectionDataView() {
 
         <Tabs value={tab} onChange={(_, value) => setTab(value as CollectionDataTab)} sx={{ mb: 2 }}>
           <Tab value="records" label="Records" disabled={project.status !== 'published' && !canEdit} />
-          {showGenieTab && (
+          {showGenieTabForProject && (
             <Tab value="genie" label="Genie Q&A" disabled={project.status !== 'published'} />
           )}
         </Tabs>
 
         {tab === 'records' && <RecordsPanel project={project} canEdit={canEdit} />}
-        {tab === 'genie' && showGenieTab && (
+        {tab === 'genie' && showGenieTabForProject && (
           <GenieAskPanel project={project} isAdmin={isAdmin} />
         )}
       </Box>

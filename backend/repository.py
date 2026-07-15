@@ -315,16 +315,17 @@ def publish_project(project_id: str, user_email: str) -> dict[str, Any]:
         f"DELETE FROM {_table('field_definitions')} WHERE project_id = ? AND is_published = false",
         (project_id,),
     )
-    if _is_lakebase(project):
+    from backend import genie_service
+
+    refreshed = get_project(project_id)
+    if refreshed and genie_service.genie_available_for_project(refreshed):
+        genie_service.provision_genie_space(project_id, user_email)
+    elif refreshed and _is_lakebase(refreshed):
         update_project(
             project_id,
             {"genie_status": "disabled", "genie_error": None},
             user_email,
         )
-    else:
-        from backend import genie_service
-
-        genie_service.provision_genie_space(project_id, user_email)
     return get_project(project_id)  # type: ignore[return-value]
 
 

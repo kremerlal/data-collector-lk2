@@ -31,7 +31,7 @@ fi
 
 echo "Backend  → http://localhost:8000"
 echo "Frontend → http://localhost:5173"
-"$UVICORN" backend.main:app --host 127.0.0.1 --port 8000 &
+"$UVICORN" backend.main:app --host 127.0.0.1 --port 8000 --reload &
 BACKEND_PID=$!
 trap 'kill "$BACKEND_PID" 2>/dev/null || true' EXIT INT TERM
 npm run dev

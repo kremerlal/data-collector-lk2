@@ -110,5 +110,5 @@ Install deps: `pip install -r requirements.txt` (includes `psycopg[binary,pool]`
 
 ## Limitations (v1)
 
-- **Genie Q&A** is disabled for Lakebase collections (requires UC Delta table)
+- **Genie Q&A** for Lakebase collections requires a **Unity Catalog sync location** (configured in Databricks outside this app). Set catalog, schema, and table in collection Settings after enabling Lakehouse Sync or UC registration.
 - Lookups and metadata still use the SQL warehouse / UC metadata schema

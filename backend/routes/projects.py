@@ -75,6 +75,30 @@ def _validate_storage_targets(
     return validated
 
 
+def _validate_sync_targets(
+    *,
+    sync_catalog: str | None = None,
+    sync_schema: str | None = None,
+    sync_table: str | None = None,
+) -> dict[str, str | None]:
+    """Validate UC sync location fields. Empty strings clear a field."""
+    validated: dict[str, str | None] = {}
+    for key, value in (
+        ("sync_catalog", sync_catalog),
+        ("sync_schema", sync_schema),
+        ("sync_table", sync_table),
+    ):
+        if value is None:
+            continue
+        stripped = value.strip()
+        if not stripped:
+            validated[key] = None
+        else:
+            kind = "catalog" if key == "sync_catalog" else "schema" if key == "sync_schema" else "table"
+            validated[key] = config.validate_identifier(stripped, kind)
+    return validated
+
+
 def _detail(project_id: str, role) -> ProjectDetail:
     project = repository.get_project(project_id)
     if not project:
@@ -85,6 +109,9 @@ def _detail(project_id: str, role) -> ProjectDetail:
         target_catalog=project.get("target_catalog"),
         target_schema=project.get("target_schema"),
         target_table=project.get("target_table"),
+        sync_catalog=project.get("sync_catalog"),
+        sync_schema=project.get("sync_schema"),
+        sync_table=project.get("sync_table"),
         genie_space_id=project.get("genie_space_id"),
         genie_status=project.get("genie_status"),
         genie_last_synced_at=project.get("genie_last_synced_at"),
@@ -142,6 +169,7 @@ def get_project(project_id: str, request: Request):
 def update_project(project_id: str, body: UpdateProjectRequest, request: Request):
     user, role = require_role(project_id, request, "admin")
     updates = body.model_dump(exclude_unset=True)
+    sync_was_updated = False
 
     storage_keys = {"storage_type", "target_catalog", "target_schema", "target_table"}
     if storage_keys & updates.keys():
@@ -171,8 +199,45 @@ def update_project(project_id: str, body: UpdateProjectRequest, request: Request
                 del updates[key]
         updates.update(storage_updates)
 
+    sync_keys = {"sync_catalog", "sync_schema", "sync_table"}
+    if sync_keys & updates.keys():
+        sync_was_updated = True
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.get("storage_type") != "lakebase":
+            raise HTTPException(
+                status_code=400,
+                detail="UC sync location applies only to Lakebase collections",
+            )
+        try:
+            sync_updates = _validate_sync_targets(
+                sync_catalog=updates.get("sync_catalog"),
+                sync_schema=updates.get("sync_schema"),
+                sync_table=updates.get("sync_table"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for key in list(updates.keys()):
+            if key in sync_keys:
+                del updates[key]
+        updates.update(sync_updates)
+
     if updates:
         repository.update_project(project_id, updates, user)
+
+    project = repository.get_project(project_id)
+    if project and project.get("status") == "published" and sync_was_updated:
+        from backend import genie_service
+
+        if genie_service.genie_available_for_project(project):
+            genie_service.provision_genie_space(project_id, user)
+        elif project.get("storage_type") == "lakebase":
+            repository.update_project(
+                project_id,
+                {"genie_status": "disabled", "genie_error": None},
+                user,
+            )
     return _detail(project_id, role)
 
 

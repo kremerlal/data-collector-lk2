@@ -48,7 +48,23 @@ def _ensure_workspace_folder(client: Any, path: str) -> None:
         raise
 
 
+def has_sync_location(project: dict[str, Any]) -> bool:
+    return bool(
+        (project.get("sync_catalog") or "").strip()
+        and (project.get("sync_schema") or "").strip()
+        and (project.get("sync_table") or "").strip()
+    )
+
+
+def genie_available_for_project(project: dict[str, Any]) -> bool:
+    if project.get("storage_type") == "lakebase":
+        return has_sync_location(project)
+    return project.get("storage_type") == "uc_delta"
+
+
 def _table_identifier(project: dict[str, Any]) -> str:
+    if project.get("storage_type") == "lakebase" and has_sync_location(project):
+        return f"{project['sync_catalog']}.{project['sync_schema']}.{project['sync_table']}"
     return f"{project['target_catalog']}.{project['target_schema']}.{project['target_table']}"
 
 
@@ -179,6 +195,8 @@ def provision_genie_space(project_id: str, user_email: str) -> None:
 
     project = repository.get_project(project_id)
     if not project or project.get("status") != "published":
+        return
+    if not genie_available_for_project(project):
         return
 
     fields = repository.list_fields(project_id, published_only=True)

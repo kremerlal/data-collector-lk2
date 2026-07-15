@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography';
 import { api } from '../../api/client';
 import { useProject } from '../../hooks/useProjects';
 import { designerBaseline, draftFieldsOnly } from '../../lib/designerFields';
+import { showGenieTab } from '../../lib/genie';
 import type { FieldDefinition } from '../../types';
 import BusyButton from '../common/BusyButton';
 import FormDesigner from './FormDesigner';
@@ -61,7 +62,7 @@ export default function ProjectWorkspace() {
   }
   if (error || !project) return <Typography color="error">{error || 'Project not found'}</Typography>;
 
-  const showGenieTab = project.storage_type === 'uc_delta';
+  const showGenieTabForProject = showGenieTab(project);
   const setTab = (value: TabKey) => setSearchParams({ tab: value });
 
   const saveDesign = async () => {
@@ -164,7 +165,7 @@ export default function ProjectWorkspace() {
         <Tab value="designer" label="Form designer" />
         <Tab value="lookups" label="Lookup tables" />
         <Tab value="records" label="Records" disabled={project.status !== 'published' && !canEdit} />
-        {showGenieTab && (
+        {showGenieTabForProject && (
           <Tab value="genie" label="Genie Q&A" disabled={project.status !== 'published'} />
         )}
         <Tab value="members" label="Members" disabled={!isAdmin} />
@@ -209,7 +210,7 @@ export default function ProjectWorkspace() {
       )}
 
       {tab === 'records' && <RecordsPanel project={project} canEdit={!!canEdit} />}
-      {tab === 'genie' && showGenieTab && (
+      {tab === 'genie' && showGenieTabForProject && (
         <GenieAskPanel project={project} isAdmin={!!isAdmin} />
       )}
       {tab === 'members' && isAdmin && <MembersPanel project={project} onChanged={refresh} />}

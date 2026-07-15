@@ -68,6 +68,9 @@ class ProjectDetail(ProjectSummary):
     target_catalog: Optional[str] = None
     target_schema: Optional[str] = None
     target_table: Optional[str] = None
+    sync_catalog: Optional[str] = None
+    sync_schema: Optional[str] = None
+    sync_table: Optional[str] = None
     genie_space_id: Optional[str] = None
     genie_status: Optional[GenieStatus] = None
     genie_last_synced_at: Optional[datetime] = None
@@ -120,6 +123,9 @@ class UpdateProjectRequest(BaseModel):
     target_catalog: Optional[str] = Field(default=None, min_length=1, max_length=128)
     target_schema: Optional[str] = Field(default=None, min_length=1, max_length=128)
     target_table: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    sync_catalog: Optional[str] = Field(default=None, max_length=128)
+    sync_schema: Optional[str] = Field(default=None, max_length=128)
+    sync_table: Optional[str] = Field(default=None, max_length=128)
 
 
 class AddMemberRequest(BaseModel):

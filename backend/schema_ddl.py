@@ -15,6 +15,9 @@ TABLES = {
         target_catalog STRING,
         target_schema STRING,
         target_table STRING,
+        sync_catalog STRING,
+        sync_schema STRING,
+        sync_table STRING,
         genie_space_id STRING,
         genie_status STRING,
         genie_last_synced_at TIMESTAMP,
@@ -109,6 +112,9 @@ def migration_statements(catalog: str, schema: str) -> list[str]:
         f"ALTER TABLE {proj} ADD COLUMN genie_status STRING",
         f"ALTER TABLE {proj} ADD COLUMN genie_last_synced_at TIMESTAMP",
         f"ALTER TABLE {proj} ADD COLUMN genie_error STRING",
+        f"ALTER TABLE {proj} ADD COLUMN sync_catalog STRING",
+        f"ALTER TABLE {proj} ADD COLUMN sync_schema STRING",
+        f"ALTER TABLE {proj} ADD COLUMN sync_table STRING",
     ]
 
 

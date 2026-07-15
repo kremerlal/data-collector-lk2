@@ -11,10 +11,13 @@ def _project_or_404(project_id: str) -> dict:
     project = repository.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.get("storage_type") == "lakebase":
+    if not genie_service.genie_available_for_project(project):
         raise HTTPException(
             status_code=400,
-            detail="Genie Q&A is not available for Lakebase-backed collections (UC Delta only)",
+            detail=(
+                "Genie Q&A requires a Unity Catalog table. Use UC Delta storage, or set a UC sync "
+                "location for this Lakebase collection in Settings."
+            ),
         )
     return project
 

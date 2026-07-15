@@ -86,6 +86,9 @@ export interface ProjectDetail extends ProjectSummary {
   target_catalog?: string | null;
   target_schema?: string | null;
   target_table?: string | null;
+  sync_catalog?: string | null;
+  sync_schema?: string | null;
+  sync_table?: string | null;
   genie_space_id?: string | null;
   genie_status?: 'disabled' | 'pending' | 'ready' | 'error' | null;
   genie_last_synced_at?: string | null;
@@ -146,6 +149,9 @@ export interface CreateProjectPayload {
   target_catalog?: string;
   target_schema?: string;
   target_table?: string;
+  sync_catalog?: string;
+  sync_schema?: string;
+  sync_table?: string;
 }
 
 export interface LookupProposal {

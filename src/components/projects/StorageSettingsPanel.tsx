@@ -6,6 +6,7 @@ import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { api } from '../../api/client';
+import { hasSyncLocation, showGenieTab } from '../../lib/genie';
 import type { AppConfig, ProjectDetail, StorageType } from '../../types';
 import BusyButton from '../common/BusyButton';
 
@@ -19,9 +20,13 @@ export default function StorageSettingsPanel({ project, onSaved }: StorageSettin
   const [catalog, setCatalog] = useState(project.target_catalog ?? '');
   const [schema, setSchema] = useState(project.target_schema ?? '');
   const [table, setTable] = useState(project.target_table ?? '');
+  const [syncCatalog, setSyncCatalog] = useState(project.sync_catalog ?? '');
+  const [syncSchema, setSyncSchema] = useState(project.sync_schema ?? '');
+  const [syncTable, setSyncTable] = useState(project.sync_table ?? '');
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [lakebaseConfigured, setLakebaseConfigured] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingSync, setSavingSync] = useState(false);
   const [genieSyncing, setGenieSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +39,18 @@ export default function StorageSettingsPanel({ project, onSaved }: StorageSettin
     setCatalog(project.target_catalog ?? '');
     setSchema(project.target_schema ?? '');
     setTable(project.target_table ?? '');
-  }, [project.storage_type, project.target_catalog, project.target_schema, project.target_table]);
+    setSyncCatalog(project.sync_catalog ?? '');
+    setSyncSchema(project.sync_schema ?? '');
+    setSyncTable(project.sync_table ?? '');
+  }, [
+    project.storage_type,
+    project.target_catalog,
+    project.target_schema,
+    project.target_table,
+    project.sync_catalog,
+    project.sync_schema,
+    project.sync_table,
+  ]);
 
   useEffect(() => {
     void api.getConfig().then((cfg) => {
@@ -75,9 +91,33 @@ export default function StorageSettingsPanel({ project, onSaved }: StorageSettin
     }
   };
 
+  const saveSyncLocation = async () => {
+    setSavingSync(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await api.updateProject(project.project_id, {
+        sync_catalog: syncCatalog.trim(),
+        sync_schema: syncSchema.trim(),
+        sync_table: syncTable.trim(),
+      });
+      setMessage('UC sync location saved.');
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSavingSync(false);
+    }
+  };
+
   const storageLabel = isLakebase
     ? `${catalog}.${schema}.${table}`
     : `${project.target_catalog}.${project.target_schema}.${project.target_table}`;
+
+  const syncLabel = hasSyncLocation(project)
+    ? `${project.sync_catalog}.${project.sync_schema}.${project.sync_table}`
+    : null;
+  const genieEnabled = showGenieTab(project);
 
   return (
     <Paper className="page-card" sx={{ p: 3, maxWidth: 720 }}>
@@ -188,7 +228,51 @@ export default function StorageSettingsPanel({ project, onSaved }: StorageSettin
         </Box>
       )}
 
-      {project.status === 'published' && project.storage_type === 'uc_delta' && (
+      {isLakebase && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Unity Catalog sync location
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Configure Lakebase → Unity Catalog sync outside this app (Lakehouse Sync or UC registration).
+            Enter the UC catalog, schema, and table where synced data appears to enable Genie Q&amp;A.
+          </Typography>
+          {!isDraft && syncLabel && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Current sync location: <strong>{syncLabel}</strong>
+            </Alert>
+          )}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Sync catalog"
+              value={syncCatalog}
+              onChange={(e) => setSyncCatalog(e.target.value)}
+              size="small"
+              helperText={`Default data catalog: ${appConfig?.default_data_catalog || '…'}`}
+            />
+            <TextField
+              label="Sync schema"
+              value={syncSchema}
+              onChange={(e) => setSyncSchema(e.target.value)}
+              size="small"
+            />
+            <TextField
+              label="Sync table"
+              value={syncTable}
+              onChange={(e) => setSyncTable(e.target.value)}
+              size="small"
+              helperText="UC table name after sync (may differ from the Postgres table name)"
+            />
+          </Box>
+          <Box sx={{ mt: 2 }}>
+            <BusyButton variant="outlined" onClick={saveSyncLocation} busy={savingSync} busyLabel="Saving…">
+              Save sync location
+            </BusyButton>
+          </Box>
+        </Box>
+      )}
+
+      {project.status === 'published' && genieEnabled && (
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" gutterBottom>
             Genie Q&amp;A
