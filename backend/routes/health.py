@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 
 from backend import auth, config
 from backend import lakebase_config
+from backend.app_admin import is_app_admin
 
 router = APIRouter()
 
@@ -39,6 +40,7 @@ def health(request: Request):
         "db_status": db_status,
         "db_error": db_error,
         "user_email": auth.get_user_email(request),
+        "is_app_admin": is_app_admin(auth.get_user_email(request)),
         "runtime": "databricks_app" if os.environ.get("DATABRICKS_CLIENT_ID") else "local",
         "lakebase_configured": lakebase_config.is_configured(),
         "lakebase_database": lakebase_config.database_name() if lakebase_config.is_configured() else None,

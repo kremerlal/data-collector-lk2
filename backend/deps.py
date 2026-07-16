@@ -3,6 +3,7 @@
 from fastapi import HTTPException, Request
 
 from backend import auth, repository
+from backend.app_admin import is_app_admin as user_is_app_admin
 from backend.models import ProjectRole
 
 _ROLE_RANK = {"reader": 1, "editor": 2, "admin": 3}
@@ -59,3 +60,10 @@ def project_to_summary(row: dict, role: ProjectRole | None = None) -> dict:
         "created_by": row["created_by"],
         "updated_at": row.get("updated_at"),
     }
+
+
+def require_app_admin(request: Request) -> str:
+    email = auth.get_user_email(request)
+    if not user_is_app_admin(email):
+        raise HTTPException(status_code=403, detail="App administrator access required")
+    return email

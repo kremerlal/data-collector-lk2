@@ -10,6 +10,7 @@ import type { ReactNode } from 'react';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { getTheme } from './theme';
 import type { ColorMode } from './theme';
+import { useBranding } from './branding/BrandingProvider';
 
 const STORAGE_KEY = 'dhs-data-collector-content-theme';
 
@@ -34,6 +35,7 @@ function readInitialMode(): ColorMode {
 
 export function ColorModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ColorMode>(() => readInitialMode());
+  const { branding } = useBranding();
 
   useEffect(() => {
     try {
@@ -51,7 +53,7 @@ export function ColorModeProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const theme = useMemo(() => getTheme(mode), [mode]);
+  const theme = useMemo(() => getTheme(mode, branding), [mode, branding]);
   const value = useMemo<ColorModeContextValue>(
     () => ({ mode, setMode, toggleMode }),
     [mode, setMode, toggleMode],

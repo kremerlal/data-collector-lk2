@@ -21,6 +21,9 @@ env:
   # Synced by scripts/deploy.sh per target (data-collector-dev / data-collector-prod).
   - name: DATABRICKS_APP_NAME
     value: "data-collector-prod"
+  # Comma-separated emails with permission to edit app branding (logo, title, colors).
+  - name: APP_ADMIN_EMAILS
+    value: "david.galluzzo@databricks.com"
 
 # sql-warehouse resource — deploy.sh syncs warehouse id before bundle deploy.
 # Lakebase: deploy.sh re-attaches the "database" resource after bundle deploy (bundle TF cannot declare postgres yet).

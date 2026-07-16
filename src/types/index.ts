@@ -47,6 +47,36 @@ export interface LookupRow {
 export interface UserInfo {
   email: string;
   display_name: string;
+  is_app_admin?: boolean;
+}
+
+export interface BrandingColorSet {
+  primary: string;
+  primary_light: string;
+  primary_dark: string;
+  secondary: string;
+  background: string;
+  paper: string;
+  text_primary: string;
+  text_secondary: string;
+}
+
+export interface BrandingChrome {
+  header_background: string;
+  header_mid: string;
+  header_accent: string;
+  sidebar_background: string;
+  sidebar_mid: string;
+  sidebar_end: string;
+}
+
+export interface AppBranding {
+  app_title: string;
+  agency_name: string;
+  logo_data_url: string | null;
+  chrome: BrandingChrome;
+  light: BrandingColorSet;
+  dark: BrandingColorSet;
 }
 
 export interface WorkspaceUser {
@@ -200,6 +230,7 @@ export interface AppConfig {
   db_status: string;
   db_error?: string | null;
   user_email: string;
+  is_app_admin?: boolean;
   runtime: string;
   lakebase_configured?: boolean;
   lakebase_database?: string | null;

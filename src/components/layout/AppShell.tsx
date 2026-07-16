@@ -18,6 +18,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import ApiIcon from '@mui/icons-material/Api';
 import DhsSiteHeader from '../brand/DhsSiteHeader';
 import StatusBar from '../common/StatusBar';
+import { useBranding } from '../../branding/BrandingProvider';
 import { useContentTheme } from '../../hooks/useContentTheme';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import './AppShell.css';
@@ -91,6 +92,7 @@ export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useCurrentUser();
+  const { branding } = useBranding();
   const { isContentDark, toggleContentTheme } = useContentTheme();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -164,16 +166,23 @@ export default function AppShell() {
             <button
               type="button"
               className="brand"
-              title="Data Collector home"
+              title={`${branding.app_title} home`}
               onClick={() => {
                 navigate('/');
                 setSidebarOpen(false);
               }}
             >
-              {sidebarCollapsed ? (
-                <img src="/images/dhs-logo.svg" alt="U.S. Department of Homeland Security" className="brand-seal" width={40} height={40} />
+              {branding.logo_data_url ? (
+                <img
+                  src={branding.logo_data_url}
+                  alt={branding.agency_name}
+                  className={sidebarCollapsed ? 'brand-seal' : 'brand-wordmark'}
+                  style={sidebarCollapsed ? { width: 40, height: 40, objectFit: 'contain' } : { maxHeight: 40, width: 'auto' }}
+                />
+              ) : sidebarCollapsed ? (
+                <img src="/images/dhs-logo.svg" alt={branding.agency_name} className="brand-seal" width={40} height={40} />
               ) : (
-                <img src="/images/dhs-wordmark.svg" alt="U.S. Department of Homeland Security" className="brand-wordmark" />
+                <img src="/images/dhs-wordmark.svg" alt={branding.agency_name} className="brand-wordmark" />
               )}
             </button>
             <div className="sidebar-header-actions">
@@ -186,7 +195,7 @@ export default function AppShell() {
             </div>
           </div>
 
-          {!sidebarCollapsed && <p className="sidebar-app-label">Data Collector</p>}
+          {!sidebarCollapsed && <p className="sidebar-app-label">{branding.app_title}</p>}
 
           <div className="nav-links">
             {NAV_ITEMS.map(({ path, label, icon, match }) => {
@@ -211,7 +220,7 @@ export default function AppShell() {
               {isContentDark ? <Brightness7Icon fontSize="small" /> : <Brightness4Icon fontSize="small" />}
               {!sidebarCollapsed && <span>{isContentDark ? 'Light mode' : 'Dark mode'}</span>}
             </button>
-            {!sidebarCollapsed && (
+            {!sidebarCollapsed && branding.agency_name === 'U.S. Department of Homeland Security' && (
               <a href="https://www.dhs.gov/" target="_blank" rel="noopener noreferrer" className="dhs-footer-link">
                 DHS.gov
                 <OpenInNewIcon sx={{ fontSize: '0.65rem' }} />
@@ -229,6 +238,8 @@ export default function AppShell() {
             <DhsSiteHeader
               appTitle={header.title}
               tagline={header.tagline}
+              agencyName={branding.agency_name}
+              logoUrl={branding.logo_data_url}
               actions={toolbarActions}
               userLabel={user?.display_name || user?.email}
             />

@@ -1,5 +1,6 @@
 import { createTheme } from '@mui/material/styles';
 import type { Theme } from '@mui/material/styles';
+import type { AppBranding } from './types';
 
 export type ColorMode = 'light' | 'dark';
 
@@ -16,20 +17,41 @@ const DHS_PRIMARY_DARK_CONTENT = {
   contrastText: '#0c2340',
 };
 
-/** MUI theme for the content area — synced with Scorecard content-theme toggle. */
-export function getTheme(mode: ColorMode): Theme {
+function paletteFromBranding(mode: ColorMode, branding?: AppBranding) {
+  const colors = mode === 'dark' ? branding?.dark : branding?.light;
   const isDark = mode === 'dark';
+  const fallbackPrimary = isDark ? DHS_PRIMARY_DARK_CONTENT : DHS_PRIMARY;
+  return {
+    primary: colors
+      ? { main: colors.primary, light: colors.primary_light, dark: colors.primary_dark }
+      : fallbackPrimary,
+    secondary: colors
+      ? { main: colors.secondary, light: colors.secondary, dark: colors.secondary }
+      : { main: '#c41230', light: '#e03a52', dark: '#9a0e26' },
+    background: colors
+      ? { default: colors.background, paper: colors.paper }
+      : isDark
+        ? { default: '#0c2340', paper: '#112e51' }
+        : { default: '#f8f9fb', paper: '#ffffff' },
+    text: colors
+      ? { primary: colors.text_primary, secondary: colors.text_secondary }
+      : isDark
+        ? { primary: 'rgba(255, 255, 255, 0.96)', secondary: 'rgba(255, 255, 255, 0.76)' }
+        : { primary: '#1b1b1b', secondary: '#5c5c5c' },
+  };
+}
+
+/** MUI theme for the content area — synced with Scorecard content-theme toggle. */
+export function getTheme(mode: ColorMode, branding?: AppBranding): Theme {
+  const isDark = mode === 'dark';
+  const palette = paletteFromBranding(mode, branding);
   return createTheme({
     palette: {
       mode,
-      primary: isDark ? DHS_PRIMARY_DARK_CONTENT : DHS_PRIMARY,
-      secondary: { main: '#c41230', light: '#e03a52', dark: '#9a0e26' },
-      background: isDark
-        ? { default: '#0c2340', paper: '#112e51' }
-        : { default: '#f8f9fb', paper: '#ffffff' },
-      text: isDark
-        ? { primary: 'rgba(255, 255, 255, 0.96)', secondary: 'rgba(255, 255, 255, 0.76)' }
-        : { primary: '#1b1b1b', secondary: '#5c5c5c' },
+      primary: palette.primary,
+      secondary: palette.secondary,
+      background: palette.background,
+      text: palette.text,
       divider: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.10)',
     },
     typography: {

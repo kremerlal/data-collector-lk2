@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routes import ai, genie, health, lookups, me, projects
+from backend.routes import ai, branding, genie, health, lookups, me, projects
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,6 +22,7 @@ app.add_middleware(
 
 app.include_router(health.router, prefix="/api")
 app.include_router(me.router, prefix="/api")
+app.include_router(branding.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(lookups.router, prefix="/api")
 app.include_router(genie.router, prefix="/api")

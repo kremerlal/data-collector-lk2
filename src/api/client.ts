@@ -3,6 +3,7 @@ import type {
   ApplyProjectProposalPayload,
   AddMemberResponse,
   AppConfig,
+  AppBranding,
   BindLookupPayload,
   CreateProjectPayload,
   FieldDefinition,
@@ -131,6 +132,15 @@ async function request<T>(
 export const api = {
   getMe: () => request<UserInfo>('/me', undefined, 'Loading profile…'),
   getConfig: () => request<AppConfig>('/health', undefined, 'Loading config…'),
+  getBranding: () => request<AppBranding>('/branding', undefined, 'Loading branding…'),
+  updateBranding: (body: Partial<AppBranding> & { clear_logo?: boolean }) =>
+    request<AppBranding>(
+      '/branding',
+      { method: 'PUT', body: JSON.stringify(body) },
+      'Saving branding…',
+    ),
+  resetBranding: () =>
+    request<AppBranding>('/branding/reset', { method: 'POST' }, 'Resetting branding…'),
 
   listProjects: () => request<ProjectSummary[]>('/projects', undefined, 'Loading collections…'),
   createProject: (body: CreateProjectPayload) =>
