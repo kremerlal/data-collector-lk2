@@ -20,6 +20,7 @@ import type {
   RecordAuditEntry,
   RecordRow,
   ImportRecordsResult,
+  SyncStagedRecordsResult,
   UcTablePreview,
   UserInfo,
   WorkspaceUser,
@@ -146,13 +147,36 @@ export const api = {
       'Applying palette…',
     ),
 
+  listUcCatalogSchemas: (catalog: string) =>
+    request<string[]>(`/uc/schemas?catalog=${encodeURIComponent(catalog)}`, undefined, 'Loading schemas…'),
+  listUcCatalogTables: (catalog: string, schema: string) =>
+    request<string[]>(
+      `/uc/tables?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}`,
+      undefined,
+      'Loading tables…',
+    ),
+  previewUcCatalogTable: (catalog: string, schema: string, table: string) =>
+    request<UcTablePreview>(
+      `/uc/preview?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`,
+      undefined,
+      'Loading table preview…',
+      120_000,
+    ),
+
   listProjects: () => request<ProjectSummary[]>('/projects', undefined, 'Loading collections…'),
   createProject: (body: CreateProjectPayload) =>
-    request<ProjectDetail>('/projects', { method: 'POST', body: JSON.stringify(body) }, 'Creating collection…'),
+    request<ProjectDetail>(
+      '/projects',
+      { method: 'POST', body: JSON.stringify(body) },
+      'Creating collection…',
+      120_000,
+    ),
   getProject: (id: string) =>
     request<ProjectDetail>(`/projects/${id}`, undefined, 'Loading project…', 60_000),
   updateProject: (id: string, body: Partial<CreateProjectPayload>) =>
     request<ProjectDetail>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, 'Saving…'),
+  deleteProject: (id: string) =>
+    request<void>(`/projects/${id}`, { method: 'DELETE' }, 'Deleting collection…'),
 
   listMembers: (id: string) => request<ProjectMember[]>(`/projects/${id}/members`, undefined, 'Loading members…'),
   searchWorkspaceUsers: (id: string, q: string) =>
@@ -185,8 +209,18 @@ export const api = {
   publishProject: (id: string) =>
     request<ProjectDetail>(`/projects/${id}/publish`, { method: 'POST' }, 'Publishing…', 120_000),
 
-  listRecords: (id: string) =>
-    request<RecordRow[]>(`/projects/${id}/records`, undefined, 'Loading records…', 60_000),
+  listRecords: (id: string, params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const query = qs.toString();
+    return request<RecordRow[]>(
+      `/projects/${id}/records${query ? `?${query}` : ''}`,
+      undefined,
+      'Loading records…',
+      120_000,
+    );
+  },
   createRecord: (id: string, values: Record<string, unknown>) =>
     request<RecordRow>(
       `/projects/${id}/records`,
@@ -202,6 +236,13 @@ export const api = {
     ),
   deleteRecord: (id: string, recordId: string) =>
     request<void>(`/projects/${id}/records/${recordId}`, { method: 'DELETE' }, 'Deleting record…'),
+  syncRecordsToUc: (id: string) =>
+    request<SyncStagedRecordsResult>(
+      `/projects/${id}/records/sync-to-uc`,
+      { method: 'POST' },
+      'Syncing to Unity Catalog…',
+      120_000,
+    ),
   getRecordAudit: (id: string, recordId: string) =>
     request<RecordAuditEntry[]>(
       `/projects/${id}/records/${recordId}/audit`,
@@ -256,6 +297,18 @@ export const api = {
       `/projects/${projectId}/lookups/preview-uc-table?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`,
       undefined,
       'Loading table preview…',
+    ),
+  listUcSchemas: (projectId: string, catalog: string) =>
+    request<string[]>(
+      `/projects/${projectId}/lookups/uc-schemas?catalog=${encodeURIComponent(catalog)}`,
+      undefined,
+      'Loading schemas…',
+    ),
+  listUcTables: (projectId: string, catalog: string, schema: string) =>
+    request<string[]>(
+      `/projects/${projectId}/lookups/uc-tables?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}`,
+      undefined,
+      'Loading tables…',
     ),
   bindLookup: (projectId: string, body: BindLookupPayload) =>
     request<LookupTable>(
@@ -340,5 +393,6 @@ export const api = {
       `/ai/projects/${projectId}/apply-proposal`,
       { method: 'POST', body: JSON.stringify(body) },
       'Applying changes…',
+      120_000,
     ),
 };

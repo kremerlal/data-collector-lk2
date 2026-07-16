@@ -28,6 +28,8 @@ import CollectionAccessDenied from '../common/CollectionAccessDenied';
 
 type TabKey = 'records' | 'designer' | 'lookups' | 'members' | 'settings' | 'genie';
 
+const PUBLISH_ACTION_TABS: TabKey[] = ['designer', 'lookups', 'records', 'members', 'settings'];
+
 export default function ProjectWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
@@ -84,6 +86,13 @@ export default function ProjectWorkspace() {
   };
 
   const publish = async () => {
+    if (project.storage_type === 'uc_delta' && !project.record_sync_mode) {
+      setMessage(
+        'Choose how record changes sync to Unity Catalog in Settings before publishing.',
+      );
+      setTab('settings');
+      return;
+    }
     setPublishing(true);
     setMessage(null);
     try {
@@ -148,7 +157,7 @@ export default function ProjectWorkspace() {
           )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {tab === 'designer' && isAdmin && (
+          {isAdmin && PUBLISH_ACTION_TABS.includes(tab) && (
             <>
               <BusyButton variant="outlined" onClick={saveDesign} busy={saving} busyLabel="Saving…">
                 Save draft
@@ -212,7 +221,9 @@ export default function ProjectWorkspace() {
         <LookupsPanel project={project} isAdmin={!!isAdmin} onChanged={refresh} />
       )}
 
-      {tab === 'records' && <RecordsPanel project={project} canEdit={!!canEdit} />}
+      {tab === 'records' && (
+        <RecordsPanel project={project} canEdit={!!canEdit} onChanged={refresh} />
+      )}
       {tab === 'genie' && showGenieTabForProject && (
         <GenieAskPanel project={project} isAdmin={!!isAdmin} />
       )}

@@ -5,10 +5,16 @@ export function recordsQueryKey(projectId: string, schemaVersion = 0) {
   return ['records', projectId, schemaVersion] as const;
 }
 
-export function useRecords(projectId: string, enabled = true, schemaVersion = 0) {
+export function useRecords(
+  projectId: string,
+  enabled = true,
+  schemaVersion = 0,
+  options?: { limit?: number },
+) {
+  const limit = options?.limit;
   return useQuery({
-    queryKey: recordsQueryKey(projectId, schemaVersion),
-    queryFn: () => api.listRecords(projectId),
+    queryKey: [...recordsQueryKey(projectId, schemaVersion), limit ?? null],
+    queryFn: () => api.listRecords(projectId, limit ? { limit } : undefined),
     enabled,
   });
 }

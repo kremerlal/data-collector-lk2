@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 
 from backend import audit_repository, config, repository
 from backend import auth, lookup_repository
 from backend.csv_util import parse_records_csv, records_to_csv
 from backend.deps import assert_role, project_to_summary, require_role
-from backend.sql_util import request_connection
+from backend.sql_util import request_connection, request_connections
 from backend.validation import build_lookup_allowed, validate_record_values
 from backend.timing import track_request
 from backend.models import (
@@ -24,6 +24,7 @@ from backend.models import (
     RecordAuditEntry,
     RecordRow,
     SaveFieldsRequest,
+    SyncStagedRecordsResult,
     UpdateProjectRequest,
     UpdateRecordRequest,
     WorkspaceUser,
@@ -112,6 +113,14 @@ def _detail(project_id: str, role) -> ProjectDetail:
         target_catalog=project.get("target_catalog"),
         target_schema=project.get("target_schema"),
         target_table=project.get("target_table"),
+        storage_mode=project.get("storage_mode") or "managed",
+        record_key_column=project.get("record_key_column"),
+        record_sync_mode=project.get("record_sync_mode"),
+        staged_change_count=(
+            repository.count_staged_changes(project_id)
+            if project.get("record_sync_mode") == "staged"
+            else 0
+        ),
         sync_catalog=project.get("sync_catalog"),
         sync_schema=project.get("sync_schema"),
         sync_table=project.get("sync_table"),
@@ -150,16 +159,33 @@ def create_project(body: CreateProjectRequest, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    project = repository.create_project(
-        name=body.name.strip(),
-        description=body.description,
-        storage_type=body.storage_type,
-        target_catalog=storage["target_catalog"],
-        target_schema=storage["target_schema"],
-        target_table=storage["target_table"],
-        created_by=user,
-    )
-    return _detail(project["project_id"], "admin")
+    if body.storage_mode == "existing_uc":
+        if body.storage_type != "uc_delta":
+            raise HTTPException(
+                status_code=400,
+                detail="Existing UC table mode requires Unity Catalog (Delta) storage",
+            )
+        if not body.record_key_column or not body.record_key_column.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="record_key_column is required when using an existing UC table",
+            )
+
+    with request_connections(request):
+        project = repository.create_project(
+            name=body.name.strip(),
+            description=body.description,
+            storage_type=body.storage_type,
+            storage_mode=body.storage_mode,
+            record_key_column=body.record_key_column.strip() if body.record_key_column else None,
+            target_catalog=storage["target_catalog"],
+            target_schema=storage["target_schema"],
+            target_table=storage["target_table"],
+            created_by=user,
+        )
+        if body.seed_fields:
+            repository.replace_draft_fields(project["project_id"], body.seed_fields, user)
+        return _detail(project["project_id"], "admin")
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
@@ -226,6 +252,21 @@ def update_project(project_id: str, body: UpdateProjectRequest, request: Request
                 del updates[key]
         updates.update(sync_updates)
 
+    if "record_sync_mode" in updates:
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.get("status") == "published":
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot change record sync mode after the collection is published",
+            )
+        if project.get("storage_type") != "uc_delta":
+            raise HTTPException(
+                status_code=400,
+                detail="Record sync mode applies only to Unity Catalog collections",
+            )
+
     if updates:
         repository.update_project(project_id, updates, user)
 
@@ -256,6 +297,17 @@ def search_workspace_users(project_id: str, request: Request, q: str = ""):
             status_code=502,
             detail=f"Could not load workspace users: {exc}",
         ) from exc
+
+
+@router.delete("/{project_id}", status_code=204)
+def delete_project(project_id: str, request: Request):
+    require_role(project_id, request, "admin")
+    try:
+        with request_connection():
+            repository.delete_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMember])
@@ -303,12 +355,28 @@ def save_fields(project_id: str, body: SaveFieldsRequest, request: Request):
 
 
 @router.post("/{project_id}/publish", response_model=ProjectDetail)
-def publish_project(project_id: str, request: Request):
+def publish_project(project_id: str, request: Request, background_tasks: BackgroundTasks):
     user, role = require_role(project_id, request, "admin")
-    try:
-        repository.publish_project(project_id, user)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    with track_request("projects.publish") as timer:
+        try:
+            with request_connections(request):
+                repository.publish_project(project_id, user)
+                timer.mark("publish_ms")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        from backend import genie_service
+
+        project = repository.get_project(project_id)
+        timer.mark("load_project_ms")
+        if project and genie_service.genie_available_for_project(project):
+            background_tasks.add_task(genie_service.provision_genie_space, project_id, user)
+        elif project and project.get("storage_type") == "lakebase":
+            repository.update_project(
+                project_id,
+                {"genie_status": "disabled", "genie_error": None},
+                user,
+            )
+        timer.set_extra(project_id=project_id)
     return _detail(project_id, role)
 
 
@@ -320,9 +388,15 @@ def _validate_record_values(project_id: str, fields, values: dict) -> None:
 
 
 @router.get("/{project_id}/records", response_model=list[RecordRow])
-def list_records(project_id: str, request: Request, response: Response):
+def list_records(
+    project_id: str,
+    request: Request,
+    response: Response,
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+):
     with track_request("records.list") as timer:
-        with request_connection():
+        with request_connections(request):
             email = auth.get_user_email(request)
             project, role = repository.get_project_with_member(project_id, email)
             timer.mark("auth_project_ms")
@@ -337,7 +411,7 @@ def list_records(project_id: str, request: Request, response: Response):
                     project=project,
                 )
                 timer.mark("load_fields_ms")
-                rows = repository.list_records(project, fields)
+                rows = repository.list_records(project, fields, limit=limit, offset=offset)
                 timer.mark("list_records_ms")
                 result = [RecordRow(**row) for row in rows]
                 timer.mark("serialize_ms")
@@ -345,7 +419,10 @@ def list_records(project_id: str, request: Request, response: Response):
                     project_id=project_id,
                     row_count=len(rows),
                     storage_type=project.get("storage_type"),
+                    storage_mode=project.get("storage_mode"),
                     field_count=len(fields),
+                    limit=limit,
+                    offset=offset,
                 )
     response.headers["Server-Timing"] = timer.server_timing_header()
     return result
@@ -354,7 +431,7 @@ def list_records(project_id: str, request: Request, response: Response):
 @router.post("/{project_id}/records", response_model=RecordRow, status_code=201)
 def create_record(project_id: str, body: CreateRecordRequest, request: Request, response: Response):
     with track_request("records.create") as timer:
-        with request_connection():
+        with request_connections(request):
             email = auth.get_user_email(request)
             project, role = repository.get_project_with_member(project_id, email)
             timer.mark("auth_project_ms")
@@ -379,7 +456,10 @@ def create_record(project_id: str, body: CreateRecordRequest, request: Request, 
             timer.mark("validate_ms")
             if errors:
                 raise HTTPException(status_code=422, detail={"field_errors": errors})
-            row = repository.create_record(project, fields, body.values, email)
+            try:
+                row = repository.create_record(project, fields, body.values, email)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             timer.mark("create_record_ms")
             audit_repository.log_record_created(
                 project_id,
@@ -401,44 +481,69 @@ def create_record(project_id: str, body: CreateRecordRequest, request: Request, 
 
 @router.patch("/{project_id}/records/{record_id}", response_model=RecordRow)
 def update_record(project_id: str, record_id: str, body: UpdateRecordRequest, request: Request):
-    user, _ = require_role(project_id, request, "editor")
-    project = repository.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    fields = repository.list_fields(project_id, published_only=True)
-    existing = repository.get_record(project, fields, record_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Record not found")
-    _validate_record_values(project_id, fields, body.values)
-    repository.update_record(project, fields, record_id, body.values, user)
-    audit_repository.log_record_updated(
-        project_id,
-        record_id,
-        existing["values"],
-        body.values,
-        changed_by=user,
-    )
-    updated = repository.get_record(project, fields, record_id)
+    with request_connections(request):
+        user, _ = require_role(project_id, request, "editor")
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        fields = repository.list_fields(project_id, published_only=True)
+        existing = repository.get_record(project, fields, record_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Record not found")
+        _validate_record_values(project_id, fields, body.values)
+        try:
+            repository.update_record(project, fields, record_id, body.values, user)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        audit_repository.log_record_updated(
+            project_id,
+            record_id,
+            existing["values"],
+            body.values,
+            changed_by=user,
+        )
+        updated = repository.get_record(project, fields, record_id)
     return RecordRow(**updated)  # type: ignore[arg-type]
 
 
 @router.delete("/{project_id}/records/{record_id}", status_code=204)
 def delete_record(project_id: str, record_id: str, request: Request):
-    user, _ = require_role(project_id, request, "editor")
-    project = repository.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    fields = repository.list_fields(project_id, published_only=True)
-    existing = repository.get_record(project, fields, record_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Record not found")
-    repository.delete_record(project, record_id)
-    audit_repository.log_record_deleted(
-        project_id,
-        record_id,
-        existing["values"],
-        changed_by=user,
-    )
+    with request_connections(request):
+        user, _ = require_role(project_id, request, "editor")
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        fields = repository.list_fields(project_id, published_only=True)
+        existing = repository.get_record(project, fields, record_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Record not found")
+        repository.delete_record(project, record_id, user)
+        audit_repository.log_record_deleted(
+            project_id,
+            record_id,
+            existing["values"],
+            changed_by=user,
+        )
+
+
+@router.post("/{project_id}/records/sync-to-uc", response_model=SyncStagedRecordsResult)
+def sync_staged_records(project_id: str, request: Request):
+    with request_connections(request):
+        user, _ = require_role(project_id, request, "editor")
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.get("status") != "published":
+            raise HTTPException(
+                status_code=400,
+                detail="Collection must be published before syncing records to Unity Catalog",
+            )
+        fields = repository.list_fields(project_id, published_only=True, project=project)
+        try:
+            result = repository.sync_staged_records(project, fields, user)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SyncStagedRecordsResult(**result)
 
 
 def _field_label_map(fields: list[FieldDefinition]) -> dict[str, str]:
@@ -448,14 +553,15 @@ def _field_label_map(fields: list[FieldDefinition]) -> dict[str, str]:
 @router.get("/{project_id}/records/{record_id}/audit", response_model=list[RecordAuditEntry])
 def get_record_audit(project_id: str, record_id: str, request: Request):
     require_role(project_id, request, "reader")
-    project = repository.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    fields = repository.list_fields(project_id, published_only=True)
-    if not repository.get_record(project, fields, record_id):
-        raise HTTPException(status_code=404, detail="Record not found")
-    labels = _field_label_map(fields)
-    rows = audit_repository.list_record_audit(project_id, record_id)
+    with request_connections(request):
+        project = repository.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        fields = repository.list_fields(project_id, published_only=True)
+        if not repository.get_record(project, fields, record_id):
+            raise HTTPException(status_code=404, detail="Record not found")
+        labels = _field_label_map(fields)
+        rows = audit_repository.list_record_audit(project_id, record_id)
     return [
         RecordAuditEntry(
             field_key=row.get("field_key"),
@@ -472,13 +578,14 @@ def get_record_audit(project_id: str, record_id: str, request: Request):
 @router.get("/{project_id}/records/export")
 def export_records(project_id: str, request: Request):
     require_role(project_id, request, "reader")
-    project = repository.get_project(project_id)
-    if not project or project["status"] != "published":
-        raise HTTPException(status_code=400, detail="Project must be published to export records")
-    fields = repository.list_fields(project_id, published_only=True)
-    field_keys = [f.field_key for f in fields]
-    rows = repository.list_records(project, fields)
-    csv_text = records_to_csv(field_keys, rows)
+    with request_connections(request):
+        project = repository.get_project(project_id)
+        if not project or project["status"] != "published":
+            raise HTTPException(status_code=400, detail="Project must be published to export records")
+        fields = repository.list_fields(project_id, published_only=True)
+        field_keys = [f.field_key for f in fields]
+        rows = repository.list_records(project, fields, limit=5000)
+        csv_text = records_to_csv(field_keys, rows)
     filename = f"{project['slug']}_records.csv"
     return Response(
         content=csv_text,
@@ -490,25 +597,26 @@ def export_records(project_id: str, request: Request):
 @router.post("/{project_id}/records/import", response_model=ImportRecordsResult)
 def import_records(project_id: str, body: ImportRecordsCsvRequest, request: Request):
     user, _ = require_role(project_id, request, "editor")
-    project = repository.get_project(project_id)
-    if not project or project["status"] != "published":
-        raise HTTPException(status_code=400, detail="Project must be published before importing records")
-    fields = repository.list_fields(project_id, published_only=True)
-    field_keys = [f.field_key for f in fields]
-    try:
-        parsed = parse_records_csv(body.csv, field_keys)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    with request_connections(request):
+        project = repository.get_project(project_id)
+        if not project or project["status"] != "published":
+            raise HTTPException(status_code=400, detail="Project must be published before importing records")
+        fields = repository.list_fields(project_id, published_only=True)
+        field_keys = [f.field_key for f in fields]
+        try:
+            parsed = parse_records_csv(body.csv, field_keys)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    lookup_allowed = build_lookup_allowed(fields, project_id)
-    created = 0
-    failed: list[ImportRecordError] = []
-    for row_num, values in enumerate(parsed, start=2):
-        errors = validate_record_values(fields, values, lookup_allowed=lookup_allowed)
-        if errors:
-            failed.append(ImportRecordError(row=row_num, field_errors=errors))
-            continue
-        row = repository.create_record(project, fields, values, user)
-        audit_repository.log_record_created(project_id, row["record_id"], values, changed_by=user)
-        created += 1
+        lookup_allowed = build_lookup_allowed(fields, project_id)
+        created = 0
+        failed: list[ImportRecordError] = []
+        for row_num, values in enumerate(parsed, start=2):
+            errors = validate_record_values(fields, values, lookup_allowed=lookup_allowed)
+            if errors:
+                failed.append(ImportRecordError(row=row_num, field_errors=errors))
+                continue
+            row = repository.create_record(project, fields, values, user)
+            audit_repository.log_record_created(project_id, row["record_id"], values, changed_by=user)
+            created += 1
     return ImportRecordsResult(created=created, failed=failed)

@@ -134,7 +134,7 @@ export default function CollectionDataView() {
           )}
         </Tabs>
 
-        {tab === 'records' && <RecordsPanel project={project} canEdit={canEdit} />}
+        {tab === 'records' && <RecordsPanel project={project} canEdit={canEdit} onChanged={refresh} />}
         {tab === 'genie' && showGenieTabForProject && (
           <GenieAskPanel project={project} isAdmin={isAdmin} />
         )}
