@@ -75,12 +75,61 @@ if [[ -n "$WAREHOUSE_ID" ]]; then
     fi
   fi
   echo "==> Syncing app.yaml (${WAREHOUSE_ID}, app=${RESOLVED_APP_NAME})..."
-  python3 - "$WAREHOUSE_ID" "$RESOLVED_APP_NAME" <<'PY'
+  TARGET_CATALOG="$(python3 - "$TARGET" <<'PY'
+import sys
+from pathlib import Path
+
+target = sys.argv[1]
+text = Path("databricks.yml").read_text()
+# Minimal parse: read catalog/schema under targets.<target>.variables
+section = None
+catalog = schema = None
+for line in text.splitlines():
+    stripped = line.strip()
+    if stripped == f"{target}:":
+        section = target
+        continue
+    if section == target and stripped.startswith("catalog:"):
+        catalog = stripped.split(":", 1)[1].strip()
+    if section == target and stripped.startswith("schema:"):
+        schema = stripped.split(":", 1)[1].strip()
+    if section == target and stripped and not line.startswith(" ") and stripped.endswith(":"):
+        if stripped != f"{target}:":
+            break
+if not catalog or not schema:
+    raise SystemExit(f"Could not read catalog/schema for target {target} from databricks.yml")
+print(catalog)
+PY
+)"
+  TARGET_SCHEMA="$(python3 - "$TARGET" <<'PY'
+import sys
+from pathlib import Path
+
+target = sys.argv[1]
+text = Path("databricks.yml").read_text()
+section = None
+catalog = schema = None
+for line in text.splitlines():
+    stripped = line.strip()
+    if stripped == f"{target}:":
+        section = target
+        continue
+    if section == target and stripped.startswith("catalog:"):
+        catalog = stripped.split(":", 1)[1].strip()
+    if section == target and stripped.startswith("schema:"):
+        schema = stripped.split(":", 1)[1].strip()
+    if section == target and stripped and not line.startswith(" ") and stripped.endswith(":"):
+        if stripped != f"{target}:":
+            break
+print(schema)
+PY
+)"
+  python3 - "$WAREHOUSE_ID" "$RESOLVED_APP_NAME" "$TARGET_CATALOG" "$TARGET_SCHEMA" <<'PY'
 import re
 import sys
 from pathlib import Path
 
-warehouse_id, app_name = sys.argv[1], sys.argv[2]
+warehouse_id, app_name, catalog, schema = sys.argv[1:5]
 path = Path("app.yaml")
 text = path.read_text()
 text = re.sub(
@@ -95,8 +144,21 @@ text = re.sub(
     text,
     count=1,
 )
+text = re.sub(
+    r'(- name: DATABRICKS_CATALOG\n\s+value:\s*)[^\n]+',
+    rf'\1{catalog}',
+    text,
+    count=1,
+)
+text = re.sub(
+    r'(- name: DATABRICKS_SCHEMA\n\s+value:\s*)[^\n]+',
+    rf'\1{schema}',
+    text,
+    count=1,
+)
 path.write_text(text)
 PY
+  echo "==> app.yaml catalog/schema: ${TARGET_CATALOG}.${TARGET_SCHEMA}"
 fi
 
 echo "==> Building frontend (dist/)..."

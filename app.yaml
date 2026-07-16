@@ -10,7 +10,7 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse
   - name: DATABRICKS_CATALOG
-    value: classic_stable_kremer_catalog
+    value: serverless_stable_tgnklq_catalog
   - name: DATABRICKS_SCHEMA
     value: data_collector
   # ENDPOINT_NAME resolved from the "database" app resource (re-attached on deploy — see docs/LAKEBASE.md).
