@@ -69,10 +69,19 @@ export default function MembersPanel({ project, onChanged }: MembersPanelProps) 
     setNotice(null);
     try {
       const result = await api.addMember(project.project_id, email, role);
-      if (result.app_access_granted) {
-        setNotice(result.app_access_note || 'Granted Can use on the Data Collector app.');
+      const notices: string[] = [];
+      if (result.app_access_granted && result.app_access_note) {
+        notices.push(result.app_access_note);
       } else if (result.app_access_note) {
-        setNotice(result.app_access_note);
+        notices.push(result.app_access_note);
+      }
+      if (result.uc_access_granted && result.uc_access_note) {
+        notices.push(result.uc_access_note);
+      } else if (result.uc_access_note) {
+        notices.push(result.uc_access_note);
+      }
+      if (notices.length) {
+        setNotice(notices.join(' '));
       }
       setSelectedUser(null);
       setInputValue('');
@@ -101,7 +110,8 @@ export default function MembersPanel({ project, onChanged }: MembersPanelProps) 
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Search workspace users to add. New members are automatically granted Can use on this app when
-        needed.
+        needed. For Unity Catalog collections, the app may also grant UC table access when hybrid mode
+        is enabled.
       </Typography>
 
       {notice && (

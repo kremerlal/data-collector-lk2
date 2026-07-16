@@ -90,6 +90,8 @@ export interface AddMemberResponse {
   members: ProjectMember[];
   app_access_granted: boolean;
   app_access_note?: string | null;
+  uc_access_granted?: boolean;
+  uc_access_note?: string | null;
 }
 
 export interface ProjectMember {
@@ -252,6 +254,7 @@ export interface AppConfig {
   lakebase_configured?: boolean;
   lakebase_database?: string | null;
   lakebase_default_schema?: string;
+  uc_data_access_mode?: 'hybrid' | 'service_principal' | 'user_obo';
 }
 
 export interface UcTablePreview {

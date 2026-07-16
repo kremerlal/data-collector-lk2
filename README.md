@@ -252,22 +252,45 @@ The script will:
 
 ### 3. Grant Unity Catalog permissions (required)
 
-The deployed app uses **two identities**:
+The deployed app uses **two identities** (configurable via `UC_DATA_ACCESS_MODE`, default **`hybrid`**):
 
 | Layer | Identity | UC access |
 |-------|----------|-----------|
 | App metadata (projects, fields, members, lookups) | **Service principal** | Metadata schema only |
-| Collection data (records, UC table bind/preview, existing-UC writes) | **Signed-in user** (on-behalf-of) | User's existing UC grants |
+| UC browse (schema/table pickers, lookup bind, preview) | **Signed-in user** (on-behalf-of) | User's existing UC grants |
+| Collection data — **managed** tables (app-created) | **Service principal** (hybrid / `service_principal`) | SP needs CREATE + MODIFY on target schema; members get auto-GRANT on publish/add |
+| Collection data — **existing UC** tables (`storage_mode=existing_uc`) | **Signed-in user** (hybrid / `user_obo`) | User's existing UC grants; optional auto-GRANT if SP has MANAGE on the table |
+
+**`UC_DATA_ACCESS_MODE` values:**
+
+| Value | Behavior |
+|-------|----------|
+| `hybrid` (default) | Managed UC collections: app SP runs record SQL and auto-grants members. Existing UC bindings: user OBO. |
+| `service_principal` | All UC data SQL runs as the app SP (members need manual UC grants on data tables). |
+| `user_obo` | All UC data SQL runs as the signed-in user (previous behavior). |
 
 Without service-principal grants on the metadata schema, `/api/projects` returns **Internal Server Error** (`USE CATALOG` denied).
 
-**Enable user authorization on the app** (required for record writes and UC schema/table pickers):
+**Enable user authorization on the app** (required for UC browse, existing-UC collections, and `user_obo` mode):
 
 1. **Compute → Apps →** your app → **Edit**
 2. Under **User authorization**, enable it and add the **`sql`** scope
 3. **Stop and restart** the app after changing scopes
 
-Databricks forwards the user's short-lived token in the `X-Forwarded-Access-Token` header. The app uses it for all Unity Catalog **data-plane** SQL so row/column policies and table grants apply per user.
+Databricks forwards the user's short-lived token in the `X-Forwarded-Access-Token` header. The app uses it for UC **browse** SQL and for **existing UC** collection data in hybrid mode so row/column policies and table grants apply per user.
+
+**Hybrid mode — service principal on data schemas (managed collections):**
+
+Grant the app service principal enough privilege to create tables and grant members on publish (replace catalog/schema):
+
+```sql
+GRANT USE CATALOG ON CATALOG <data_catalog> TO `<service-principal-client-id>`;
+GRANT USE SCHEMA ON SCHEMA <data_catalog>.<data_schema> TO `<service-principal-client-id>`;
+GRANT CREATE TABLE ON SCHEMA <data_catalog>.<data_schema> TO `<service-principal-client-id>`;
+GRANT MODIFY ON SCHEMA <data_catalog>.<data_schema> TO `<service-principal-client-id>`;
+```
+
+Members of published managed collections receive `SELECT` / `SELECT, MODIFY` on the collection table automatically (for notebook/SQL access outside the app). They do **not** need those grants to use the app itself.
 
 **Find the service principal client id** (metadata only):
 
@@ -291,7 +314,9 @@ GRANT USE SCHEMA ON SCHEMA serverless_stable_tgnklq_catalog.data_collector TO `<
 GRANT SELECT, MODIFY ON SCHEMA serverless_stable_tgnklq_catalog.data_collector TO `<service-principal-client-id>`;
 ```
 
-Collection **data tables** do not need grants on the service principal — each user needs their own UC grants on the target schemas/tables. Users also need **CAN USE** on the SQL warehouse attached to the app.
+In **`user_obo`** mode, collection **data tables** do not need grants on the service principal — each user needs their own UC grants on the target schemas/tables. In **`hybrid`** mode, managed collection tables are accessed by the SP (see above); existing UC bindings still require per-user grants unless auto-grant succeeds.
+
+Users also need **CAN USE** on the SQL warehouse attached to the app.
 
 Use the **client id UUID** in backticks — the display name (`app-xxxxx data-collector-prod`) often fails in `GRANT` statements.
 

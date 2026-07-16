@@ -153,6 +153,8 @@ class AddMemberResponse(BaseModel):
     members: list[ProjectMember]
     app_access_granted: bool = False
     app_access_note: Optional[str] = None
+    uc_access_granted: bool = False
+    uc_access_note: Optional[str] = None
 
 
 class SaveFieldsRequest(BaseModel):

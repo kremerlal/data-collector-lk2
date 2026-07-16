@@ -24,11 +24,14 @@ env:
   # Comma-separated emails with permission to edit app branding (logo, title, colors).
   - name: APP_ADMIN_EMAILS
     value: "david.galluzzo@databricks.com"
+  # hybrid | service_principal | user_obo — see README §3
+  - name: UC_DATA_ACCESS_MODE
+    value: "hybrid"
 
 # sql-warehouse resource — deploy.sh syncs warehouse id before bundle deploy.
 # Lakebase: deploy.sh re-attaches the "database" resource after bundle deploy (bundle TF cannot declare postgres yet).
 resources:
   - name: sql-warehouse
     sql_warehouse:
-      id: "62c50dd91fadb932"
+      id: "3c333bc7e0c36cd6"
       permission: CAN_USE

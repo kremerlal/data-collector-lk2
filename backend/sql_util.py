@@ -17,16 +17,66 @@ from backend.sql_errors import (
     as_permission_error,
     is_permission_denied,
 )
+from backend.uc_data_access import get_uc_data_access_mode, use_user_token_for_project
 from backend.timing import get_timer
 
 _metadata_connection: ContextVar[Any | None] = ContextVar("sql_metadata_connection", default=None)
 _data_connection: ContextVar[Any | None] = ContextVar("sql_data_connection", default=None)
+_project_context: ContextVar[Any | None] = ContextVar("sql_project_context", default=None)
+_force_user_data: ContextVar[bool] = ContextVar("sql_force_user_data", default=False)
 _connection_depth: ContextVar[int] = ContextVar("sql_connection_depth", default=0)
 
 
 class ConnectionTarget(str, Enum):
     METADATA = "metadata"
     DATA = "data"
+
+
+@contextmanager
+def project_data_scope(project: Any | None) -> Iterator[None]:
+    """Set collection context so UC data SQL can pick SP vs user token."""
+    token = _project_context.set(project)
+    try:
+        yield
+    finally:
+        _project_context.reset(token)
+
+
+@contextmanager
+def user_data_access() -> Iterator[None]:
+    """Force UC browse/preview SQL to use the signed-in user's token."""
+    token = _force_user_data.set(True)
+    try:
+        yield
+    finally:
+        _force_user_data.reset(token)
+
+
+def _resolve_data_connection() -> Any:
+    if _force_user_data.get():
+        conn = _data_connection.get()
+        if conn is None:
+            raise UserAuthorizationRequiredError()
+        return conn
+
+    project = _project_context.get()
+    if project is not None and not use_user_token_for_project(project):
+        conn = _metadata_connection.get()
+        if conn is None:
+            raise RuntimeError("Metadata SQL connection is not available")
+        return conn
+
+    mode = get_uc_data_access_mode()
+    if mode == "service_principal" and project is not None:
+        conn = _metadata_connection.get()
+        if conn is None:
+            raise RuntimeError("Metadata SQL connection is not available")
+        return conn
+
+    conn = _data_connection.get()
+    if conn is None:
+        raise UserAuthorizationRequiredError()
+    return conn
 
 
 def _run_sql(cur: Any, sql: str, params: Optional[tuple | list]) -> None:
@@ -103,9 +153,7 @@ def request_connection() -> Iterator[None]:
 @contextmanager
 def cursor(*, connection: ConnectionTarget = ConnectionTarget.METADATA) -> Iterator[Any]:
     if connection is ConnectionTarget.DATA:
-        conn = _data_connection.get()
-        if conn is None:
-            raise UserAuthorizationRequiredError()
+        conn = _resolve_data_connection()
         with conn.cursor() as cur:
             yield cur
         return

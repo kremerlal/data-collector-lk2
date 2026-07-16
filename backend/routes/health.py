@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from backend import auth, config
 from backend import lakebase_config
 from backend.app_admin import is_app_admin
+from backend.uc_data_access import get_uc_data_access_mode
 
 router = APIRouter()
 
@@ -45,4 +46,5 @@ def health(request: Request):
         "lakebase_configured": lakebase_config.is_configured(),
         "lakebase_database": lakebase_config.database_name() if lakebase_config.is_configured() else None,
         "lakebase_default_schema": lakebase_config.default_schema(),
+        "uc_data_access_mode": get_uc_data_access_mode(),
     }

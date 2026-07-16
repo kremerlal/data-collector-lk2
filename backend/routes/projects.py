@@ -319,7 +319,7 @@ def list_members(project_id: str, request: Request):
 @router.post("/{project_id}/members", response_model=AddMemberResponse, status_code=201)
 def add_member(project_id: str, body: AddMemberRequest, request: Request):
     user, _ = require_role(project_id, request, "admin")
-    repository.add_member(project_id, body.user_email, body.role, user)
+    uc_granted, uc_note = repository.add_member(project_id, body.user_email, body.role, user)
     from backend import workspace_service
 
     granted, note = workspace_service.ensure_app_user_access(body.user_email)
@@ -327,6 +327,8 @@ def add_member(project_id: str, body: AddMemberRequest, request: Request):
         members=repository.list_members(project_id),
         app_access_granted=granted,
         app_access_note=note,
+        uc_access_granted=uc_granted,
+        uc_access_note=uc_note,
     )
 
 

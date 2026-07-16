@@ -1,0 +1,133 @@
+"""Unity Catalog GRANT/REVOKE for collection members (hybrid access mode)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from backend import config
+from backend.models import ProjectRole
+from backend.sql_util import execute
+from backend.uc_data_access import (
+    _is_existing_uc,
+    _is_managed_uc,
+    auto_grant_targets_existing_uc,
+    should_auto_grant_uc_members,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _quote_principal(email: str) -> str:
+    escaped = email.strip().lower().replace("`", "``")
+    return f"`{escaped}`"
+
+
+def _table_fqn(project: dict[str, Any]) -> str:
+    return config.table_fqn(
+        project["target_catalog"],
+        project["target_schema"],
+        project["target_table"],
+    )
+
+
+def _schema_fqn(project: dict[str, Any]) -> str:
+    return (
+        f"{config.quote_identifier(project['target_catalog'])}."
+        f"{config.quote_identifier(project['target_schema'])}"
+    )
+
+
+def _catalog_fqn(project: dict[str, Any]) -> str:
+    return config.quote_identifier(project["target_catalog"])
+
+
+def _privileges_for_role(role: ProjectRole) -> tuple[str, ...]:
+    if role == "reader":
+        return ("SELECT",)
+    return ("SELECT", "MODIFY")
+
+
+def _run_grant(sql: str) -> None:
+    execute(sql)
+
+
+def _grant_member_uc(project: dict[str, Any], email: str, role: ProjectRole) -> tuple[bool, Optional[str]]:
+    if not should_auto_grant_uc_members(project):
+        return False, None
+    if project.get("status") != "published":
+        return False, None
+
+    principal = _quote_principal(email)
+    catalog = _catalog_fqn(project)
+    schema = _schema_fqn(project)
+    table = _table_fqn(project)
+    privileges = _privileges_for_role(role)
+    priv_sql = ", ".join(privileges)
+
+    try:
+        _run_grant(f"GRANT USE CATALOG ON CATALOG {catalog} TO {principal}")
+        _run_grant(f"GRANT USE SCHEMA ON SCHEMA {schema} TO {principal}")
+        _run_grant(f"GRANT {priv_sql} ON TABLE {table} TO {principal}")
+    except Exception as exc:
+        msg = str(exc)
+        if auto_grant_targets_existing_uc(project):
+            return False, (
+                "Could not auto-grant UC access on the existing table. "
+                "The user must already have UC privileges, or grant the app service principal "
+                "MANAGE on this table so the app can grant members automatically."
+            )
+        logger.warning("UC grant failed for %s on %s: %s", email, table, msg)
+        return False, f"UC grant failed (app access still works for managed tables): {msg}"
+
+    if _is_managed_uc(project):
+        return True, f"Granted {priv_sql} on collection table (optional for notebook access)."
+    return True, f"Granted {priv_sql} on existing UC table."
+
+
+def _revoke_member_uc(project: dict[str, Any], email: str) -> None:
+    if not should_auto_grant_uc_members(project):
+        return
+    if project.get("status") != "published":
+        return
+
+    principal = _quote_principal(email)
+    catalog = _catalog_fqn(project)
+    schema = _schema_fqn(project)
+    table = _table_fqn(project)
+
+    for sql in (
+        f"REVOKE SELECT, MODIFY ON TABLE {table} FROM {principal}",
+        f"REVOKE USE SCHEMA ON SCHEMA {schema} FROM {principal}",
+        f"REVOKE USE CATALOG ON CATALOG {catalog} FROM {principal}",
+    ):
+        try:
+            _run_grant(sql)
+        except Exception as exc:
+            logger.warning("UC revoke failed for %s: %s", email, exc)
+
+
+def grant_member(
+    project: dict[str, Any],
+    email: str,
+    role: ProjectRole,
+) -> tuple[bool, Optional[str]]:
+    return _grant_member_uc(project, email, role)
+
+
+def revoke_member(project: dict[str, Any], email: str) -> None:
+    _revoke_member_uc(project, email)
+
+
+def sync_all_members(project: dict[str, Any], members: list[Any]) -> None:
+    """Apply UC grants for every collection member (after publish)."""
+    if not should_auto_grant_uc_members(project):
+        return
+    if project.get("status") != "published":
+        return
+    for member in members:
+        email = member.user_email if hasattr(member, "user_email") else member["user_email"]
+        role = member.role if hasattr(member, "role") else member["role"]
+        granted, note = grant_member(project, email, role)
+        if not granted and note and _is_existing_uc(project):
+            logger.warning("sync_all_members: %s — %s", email, note)
