@@ -4,6 +4,8 @@ bundle:
 include:
   - resources/*.yml
 
+# Control what gets uploaded. Bundle sync honors .gitignore (NOT .databricksignore).
+# Ship prebuilt dist/ — run `npm run build` before deploy (scripts/deploy.sh does this).
 sync:
   include:
     - dist/**
@@ -24,37 +26,50 @@ sync:
     - /.env.example
 
 variables:
+  deploy_folder:
+    description: >-
+      Workspace folder for bundle deploy artifacts. Created automatically by
+      scripts/deploy.sh if missing. Override with DATABRICKS_DEPLOY_FOLDER.
+    default: /Workspace/DBRX-Apps
   app_name:
-    description: Deployed Databricks App name.
+    description: Deployed Databricks App name. Override with DATABRICKS_APP_NAME.
     default: data-collector-dev
   warehouse_id:
-    description: SQL warehouse id the app connects to.
-    default: REPLACE_WITH_YOUR_WAREHOUSE_ID
+    description: SQL warehouse id the app connects to (bound for CAN_USE).
+    default: 62c50dd91fadb932
   catalog:
-    description: Unity Catalog catalog for data collector tables.
-    default: main
+    description: Unity Catalog catalog for app metadata (keep in sync with app.yaml).
+    default: classic_stable_kremer_catalog
   schema:
-    description: Schema within the catalog.
+    description: Schema for app metadata (keep in sync with app.yaml).
     default: data_collector
+  lakebase_branch:
+    description: Lakebase Postgres branch resource path for the database app resource.
+    default: projects/data-collector/branches/production
+  lakebase_database:
+    description: Lakebase Postgres database resource path for the database app resource.
+    default: projects/data-collector/branches/production/databases/databricks-postgres
 
 targets:
   dev:
     default: true
     mode: development
     workspace:
-      host: https://REPLACE_WITH_YOUR_WORKSPACE.cloud.databricks.com
+      host: https://fevm-classic-stable-kremer.cloud.databricks.com/
+      root_path: ${var.deploy_folder}/${bundle.name}/${bundle.target}/${workspace.current_user.userName}
     variables:
       app_name: data-collector-dev
-      warehouse_id: REPLACE_WITH_YOUR_WAREHOUSE_ID
-      catalog: main
+      warehouse_id: 62c50dd91fadb932
+      catalog: classic_stable_kremer_catalog
       schema: data_collector
 
   prod:
     mode: production
     workspace:
-      profile: DEFAULT
+      profile: fvm
+      root_path: ${var.deploy_folder}/${bundle.name}/${bundle.target}
     variables:
       app_name: data-collector-prod
-      warehouse_id: REPLACE_WITH_YOUR_WAREHOUSE_ID
-      catalog: main
+      warehouse_id: 62c50dd91fadb932
+      catalog: classic_stable_kremer_catalog
       schema: data_collector

@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:all": "bash scripts/dev.sh",
     "build": "tsc && vite build",
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:prod": "bash scripts/deploy.sh prod",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -15,8 +17,10 @@
     "@mui/icons-material": "^6.4.0",
     "@mui/material": "^6.4.0",
     "@mui/system": "^9.0.0",
+    "@mui/x-data-grid": "^7.28.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

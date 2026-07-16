@@ -1,0 +1,14 @@
+resources:
+  apps:
+    data-collector:
+      name: ${var.app_name}
+      description: "Data Collector — forms, lookups, and UC-backed collections (${bundle.target})"
+      # Source is the repo root (app.yaml, backend/, dist/).
+      source_code_path: ..
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        # Lakebase postgres: not supported in bundle TF yet. deploy.sh runs
+        # scripts/ensure_app_lakebase_resource.py after bundle deploy to re-attach it.

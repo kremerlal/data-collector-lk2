@@ -7,9 +7,22 @@ command:
   - 8000
 
 env:
-  - name: DATABRICKS_SQL_WAREHOUSE_HTTP_PATH
-    value: /sql/1.0/warehouses/REPLACE_WITH_YOUR_WAREHOUSE_ID
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
   - name: DATABRICKS_CATALOG
-    value: main
+    value: classic_stable_kremer_catalog
   - name: DATABRICKS_SCHEMA
     value: data_collector
+  # ENDPOINT_NAME resolved from the "database" app resource (re-attached on deploy — see docs/LAKEBASE.md).
+  - name: ENDPOINT_NAME
+    valueFrom: database
+  - name: LAKEBASE_DEFAULT_SCHEMA
+    value: data_collector
+
+# sql-warehouse resource — deploy.sh syncs warehouse id before bundle deploy.
+# Lakebase: deploy.sh re-attaches the "database" resource after bundle deploy (bundle TF cannot declare postgres yet).
+resources:
+  - name: sql-warehouse
+    sql_warehouse:
+      id: "62c50dd91fadb932"
+      permission: CAN_USE

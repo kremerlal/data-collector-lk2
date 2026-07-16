@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
+import PersonIcon from '@mui/icons-material/Person';
 
 interface DhsSiteHeaderProps {
   appTitle?: string;
   tagline?: string;
   showSeal?: boolean;
   actions?: ReactNode;
+  userLabel?: string;
 }
 
 export default function DhsSiteHeader({
@@ -12,6 +14,7 @@ export default function DhsSiteHeader({
   tagline,
   showSeal = false,
   actions,
+  userLabel,
 }: DhsSiteHeaderProps) {
   return (
     <header className="dhs-site-header">
@@ -34,7 +37,17 @@ export default function DhsSiteHeader({
         {tagline && (
           <p className="dhs-site-header__tagline dhs-site-header__tagline--side">{tagline}</p>
         )}
-        {actions && <div className="dhs-site-header__actions">{actions}</div>}
+        {(actions || userLabel) && (
+          <div className="dhs-site-header__end">
+            {actions && <div className="dhs-site-header__actions">{actions}</div>}
+            {userLabel && (
+              <div className="dhs-site-header__user" title={userLabel}>
+                <PersonIcon sx={{ fontSize: '1.1rem' }} aria-hidden />
+                <span className="dhs-site-header__user-name">{userLabel}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );
