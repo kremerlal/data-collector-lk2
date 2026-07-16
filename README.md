@@ -158,20 +158,48 @@ echo "dapi<your-token>" | databricks configure \
 | `DATABRICKS_TF_EXEC_PATH` | system `terraform` | Path to Terraform binary (workaround for CLI PGP key issues). |
 | `DATABRICKS_TF_VERSION` | auto-detected | Terraform version string for bundle. |
 
-#### Unity Catalog metadata (`.env` for setup; `app.yaml` at runtime)
+#### Unity Catalog metadata
 
-Keep these aligned across `.env`, `databricks.yml`, and `app.yaml`:
+| Variable | Used by | Description |
+|----------|---------|-------------|
+| `DATABRICKS_CATALOG` | `setup.sh`, local dev | UC catalog for app metadata tables. Match your **dev** target in `databricks.yml`. |
+| `DATABRICKS_SCHEMA` | `setup.sh`, local dev | UC schema for app metadata (usually `data_collector`). |
 
-| Variable / `app.yaml` env | Default | Description |
-|---------------------------|---------|-------------|
-| `DATABRICKS_CATALOG` / `DATABRICKS_CATALOG` | `serverless_stable_tgnklq_catalog` | UC catalog for app metadata tables (`projects`, `field_definitions`, etc.). |
-| `DATABRICKS_SCHEMA` / `DATABRICKS_SCHEMA` | `data_collector` | UC schema for app metadata. |
+**Do not hand-edit catalog/warehouse/app name in `app.yaml` for deploys.** `scripts/deploy.sh` reads `targets.<dev|prod>.variables` from `databricks.yml`, patches `app.yaml` for the deploy, then restores `app.yaml` from git so merges never carry prod state.
 
 Provision metadata tables once per workspace:
 
 ```bash
 ./scripts/setup.sh
 ```
+
+#### Multi-workspace development (dev vs prod)
+
+This repo supports **two Databricks workspaces** with different catalogs:
+
+| Target | Workspace | Catalog | App name |
+|--------|-----------|---------|----------|
+| `dev` | Coworker / classic stable (`fevm-classic-stable-kremer`) | `classic_stable_kremer_catalog` | `data-collector-dev` |
+| `prod` | FVM serverless (`fvm` profile) | `serverless_stable_tgnklq_catalog` | `data-collector-prod` |
+
+**Single source of truth:** `databricks.yml` → `targets.dev` and `targets.prod` → `variables` (`warehouse_id`, `catalog`, `schema`, `app_name`).
+
+**After merging a coworker branch:**
+
+1. Review the merge only for `targets.dev` — their catalog, host, and warehouse belong there.
+2. **Do not change `targets.prod`** unless you intentionally move production.
+3. Run `npm run deploy` for dev or `npm run deploy:prod` for prod — no manual `app.yaml` edits.
+4. Each developer keeps a **local `.env`** for their own token and for `setup.sh` (catalog/schema for the workspace they provision).
+
+**What lives where:**
+
+| File | Commit? | Purpose |
+|------|---------|---------|
+| `databricks.yml` | Yes | Dev + prod target definitions (the only place for per-environment IDs) |
+| `app.yaml` | Yes | App entrypoint, shared settings (`APP_ADMIN_EMAILS`, `UC_DATA_ACCESS_MODE`). Env-specific fields are dev defaults; deploy patches temporarily. |
+| `.env` | No (gitignored) | Personal token, local dev catalog for `setup.sh` |
+
+**Common mistake (what broke prod):** Coworker's dev catalog landed in committed `app.yaml`, while your `.env` had the prod warehouse. Deploy synced warehouse but not catalog. Deploy now reads **all** target variables from `databricks.yml` and ignores `.env` warehouse for deploy.
 
 #### Lakebase (optional — collections with `storage_type: lakebase`)
 
@@ -184,32 +212,28 @@ Provision metadata tables once per workspace:
 
 `app.yaml` resolves `ENDPOINT_NAME` from the `database` app resource (`valueFrom: database`). Prod deploy re-attaches that resource automatically; see [Lakebase](#4-lakebase-database-resource-optional).
 
-#### `databricks.yml` (edit once per workspace)
+#### `databricks.yml` (per-target settings — edit here, not in `app.yaml`)
 
-| Setting | Location | Default (this workspace) |
-|---------|----------|--------------------------|
-| Workspace host | `targets.dev.workspace.host` | `https://fevm-serverless-stable-tgnklq.cloud.databricks.com` |
-| Prod CLI profile | `targets.prod.workspace.profile` | `fvm` |
-| App name (dev) | `targets.dev.variables.app_name` | `data-collector-dev` |
-| App name (prod) | `targets.prod.variables.app_name` | `data-collector-prod` |
-| Warehouse id | `variables.warehouse_id` / per-target | `3c333bc7e0c36cd6` |
-| Catalog / schema | `variables.catalog` / `variables.schema` | `serverless_stable_tgnklq_catalog` / `data_collector` |
-| Lakebase paths | `variables.lakebase_branch` / `lakebase_database` | See Lakebase table above |
+| Setting | Location | Dev | Prod |
+|---------|----------|-----|------|
+| Workspace host | `targets.dev.workspace.host` | `https://fevm-classic-stable-kremer.cloud.databricks.com/` | — |
+| Prod CLI profile | `targets.prod.workspace.profile` | — | `fvm` |
+| App name | `targets.*.variables.app_name` | `data-collector-dev` | `data-collector-prod` |
+| Warehouse id | `targets.*.variables.warehouse_id` | `62c50dd91fadb932` | `3c333bc7e0c36cd6` |
+| Catalog / schema | `targets.*.variables.catalog` / `schema` | `classic_stable_kremer_catalog` / `data_collector` | `serverless_stable_tgnklq_catalog` / `data_collector` |
+| Lakebase paths | `variables.lakebase_branch` / `lakebase_database` | See Lakebase table above | Same |
 
-#### Example `.env` for deploy
+#### Example `.env` for local dev / setup
 
 ```bash
-# Required
-DATABRICKS_WAREHOUSE_ID=3c333bc7e0c36cd6
-
-# CLI (prod uses profile fvm by default)
-DATABRICKS_CONFIG_PROFILE=fvm
-DATABRICKS_HOST=https://fevm-serverless-stable-tgnklq.cloud.databricks.com
+# Personal token for CLI, setup.sh, and local uvicorn
+DATABRICKS_HOST=https://fevm-classic-stable-kremer.cloud.databricks.com/
 DATABRICKS_TOKEN=dapi...
 
-# Metadata (setup + keep in sync with app.yaml)
-DATABRICKS_CATALOG=serverless_stable_tgnklq_catalog
+# Metadata catalog for setup.sh in YOUR workspace (match targets.dev or your sandbox)
+DATABRICKS_CATALOG=classic_stable_kremer_catalog
 DATABRICKS_SCHEMA=data_collector
+DATABRICKS_WAREHOUSE_ID=62c50dd91fadb932
 
 # Optional overrides
 # DATABRICKS_DEPLOY_FOLDER=/Workspace/DBRX-Apps
@@ -244,9 +268,10 @@ npm run deploy:prod     # prod
 The script will:
 
 1. `mkdirs` the deploy folder (e.g. `/Workspace/DBRX-Apps`)
-2. Sync `DATABRICKS_WAREHOUSE_ID` into `app.yaml`
-3. `npm run build`
-4. `databricks bundle validate` → `deploy`
+2. Read `warehouse_id`, `catalog`, `schema`, and `app_name` from `databricks.yml` for the target
+3. Patch `app.yaml` for deploy, then restore it from git
+4. `npm run build`
+5. `databricks bundle validate` → `deploy`
 5. Re-attach Lakebase `database` app resource on prod (if `ENSURE_LAKEBASE_APP_RESOURCE` is enabled)
 6. `databricks bundle run` to start the app
 

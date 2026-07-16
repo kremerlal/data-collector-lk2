@@ -6,6 +6,9 @@
 #   ./scripts/deploy.sh prod
 #   DATABRICKS_DEPLOY_FOLDER=/Workspace/MyApps ./scripts/deploy.sh dev
 #
+# Per-target catalog, schema, warehouse, and app name come from databricks.yml.
+# app.yaml is patched for deploy only, then restored so git never carries prod state.
+#
 # Prerequisites: Databricks CLI authenticated, npm, python venv optional for setup.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,8 +28,19 @@ PROFILE="${DATABRICKS_CONFIG_PROFILE:-$PROFILE}"
 if [[ "$TARGET" == "prod" && -z "$PROFILE" ]]; then
   PROFILE=fvm
 fi
-WAREHOUSE_ID="${DATABRICKS_WAREHOUSE_ID:-}"
-APP_NAME="${DATABRICKS_APP_NAME:-}"
+
+TARGET_JSON="$(python3 scripts/bundle_target.py "$TARGET")"
+WAREHOUSE_ID="$(python3 -c "import json,sys; print(json.load(sys.stdin)['warehouse_id'])" <<<"$TARGET_JSON")"
+TARGET_APP_NAME="$(python3 -c "import json,sys; print(json.load(sys.stdin)['app_name'])" <<<"$TARGET_JSON")"
+TARGET_CATALOG="$(python3 -c "import json,sys; print(json.load(sys.stdin)['catalog'])" <<<"$TARGET_JSON")"
+TARGET_SCHEMA="$(python3 -c "import json,sys; print(json.load(sys.stdin)['schema'])" <<<"$TARGET_JSON")"
+APP_NAME="${DATABRICKS_APP_NAME:-$TARGET_APP_NAME}"
+
+if [[ -n "${DATABRICKS_WAREHOUSE_ID:-}" && "$DATABRICKS_WAREHOUSE_ID" != "$WAREHOUSE_ID" ]]; then
+  echo "NOTE: Ignoring DATABRICKS_WAREHOUSE_ID from .env for deploy."
+  echo "      Using databricks.yml target '${TARGET}' warehouse: ${WAREHOUSE_ID}"
+  echo "      (.env warehouse is for setup.sh / local dev only)"
+fi
 
 # Workaround: Databricks CLI <0.274.1 fails to download Terraform (expired PGP key, Apr 2026).
 # Use system Terraform when available until CLI is upgraded.
@@ -36,11 +50,6 @@ if command -v terraform >/dev/null 2>&1; then
     DATABRICKS_TF_VERSION="$(terraform version | sed -n 's/^Terraform v//p' | awk '{print $1}')"
     export DATABRICKS_TF_VERSION
   fi
-fi
-
-if [[ -z "$WAREHOUSE_ID" || "$WAREHOUSE_ID" == REPLACE_WITH_YOUR_WAREHOUSE_ID ]]; then
-  echo "Set DATABRICKS_WAREHOUSE_ID in .env before deploying."
-  exit 1
 fi
 
 # Avoid empty-array expansion — breaks on macOS bash 3.2 with `set -u`.
@@ -55,111 +64,26 @@ dbx() {
 VAR_ARGS=(
   --var "deploy_folder=${DEPLOY_FOLDER}"
   --var "warehouse_id=${WAREHOUSE_ID}"
+  --var "catalog=${TARGET_CATALOG}"
+  --var "schema=${TARGET_SCHEMA}"
+  --var "app_name=${APP_NAME}"
 )
-if [[ -n "$APP_NAME" ]]; then
-  VAR_ARGS+=(--var "app_name=${APP_NAME}")
-fi
+
+restore_app_yaml() {
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git checkout -- app.yaml 2>/dev/null || true
+  fi
+}
+trap restore_app_yaml EXIT
 
 echo "==> Workspace deploy folder: ${DEPLOY_FOLDER}"
 echo "==> Bundle target: ${TARGET}"
+echo "==> Target config: ${TARGET_CATALOG}.${TARGET_SCHEMA} warehouse=${WAREHOUSE_ID} app=${APP_NAME}"
 echo "==> Ensuring workspace folder exists..."
 dbx workspace mkdirs "${DEPLOY_FOLDER}"
 
-if [[ -n "$WAREHOUSE_ID" ]]; then
-  RESOLVED_APP_NAME="${APP_NAME:-}"
-  if [[ -z "$RESOLVED_APP_NAME" ]]; then
-    if [[ "$TARGET" == "prod" ]]; then
-      RESOLVED_APP_NAME="data-collector-prod"
-    else
-      RESOLVED_APP_NAME="data-collector-dev"
-    fi
-  fi
-  echo "==> Syncing app.yaml (${WAREHOUSE_ID}, app=${RESOLVED_APP_NAME})..."
-  TARGET_CATALOG="$(python3 - "$TARGET" <<'PY'
-import sys
-from pathlib import Path
-
-target = sys.argv[1]
-text = Path("databricks.yml").read_text()
-# Minimal parse: read catalog/schema under targets.<target>.variables
-section = None
-catalog = schema = None
-for line in text.splitlines():
-    stripped = line.strip()
-    if stripped == f"{target}:":
-        section = target
-        continue
-    if section == target and stripped.startswith("catalog:"):
-        catalog = stripped.split(":", 1)[1].strip()
-    if section == target and stripped.startswith("schema:"):
-        schema = stripped.split(":", 1)[1].strip()
-    if section == target and stripped and not line.startswith(" ") and stripped.endswith(":"):
-        if stripped != f"{target}:":
-            break
-if not catalog or not schema:
-    raise SystemExit(f"Could not read catalog/schema for target {target} from databricks.yml")
-print(catalog)
-PY
-)"
-  TARGET_SCHEMA="$(python3 - "$TARGET" <<'PY'
-import sys
-from pathlib import Path
-
-target = sys.argv[1]
-text = Path("databricks.yml").read_text()
-section = None
-catalog = schema = None
-for line in text.splitlines():
-    stripped = line.strip()
-    if stripped == f"{target}:":
-        section = target
-        continue
-    if section == target and stripped.startswith("catalog:"):
-        catalog = stripped.split(":", 1)[1].strip()
-    if section == target and stripped.startswith("schema:"):
-        schema = stripped.split(":", 1)[1].strip()
-    if section == target and stripped and not line.startswith(" ") and stripped.endswith(":"):
-        if stripped != f"{target}:":
-            break
-print(schema)
-PY
-)"
-  python3 - "$WAREHOUSE_ID" "$RESOLVED_APP_NAME" "$TARGET_CATALOG" "$TARGET_SCHEMA" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-warehouse_id, app_name, catalog, schema = sys.argv[1:5]
-path = Path("app.yaml")
-text = path.read_text()
-text = re.sub(
-    r'(id:\s*")[^"]+(")',
-    rf'\g<1>{warehouse_id}\2',
-    text,
-    count=1,
-)
-text = re.sub(
-    r'(- name: DATABRICKS_APP_NAME\n\s+value:\s*")[^"]*(")',
-    rf'\1{app_name}\2',
-    text,
-    count=1,
-)
-text = re.sub(
-    r'(- name: DATABRICKS_CATALOG\n\s+value:\s*)[^\n]+',
-    rf'\1{catalog}',
-    text,
-    count=1,
-)
-text = re.sub(
-    r'(- name: DATABRICKS_SCHEMA\n\s+value:\s*)[^\n]+',
-    rf'\1{schema}',
-    text,
-    count=1,
-)
-path.write_text(text)
-PY
-  echo "==> app.yaml catalog/schema: ${TARGET_CATALOG}.${TARGET_SCHEMA}"
-fi
+echo "==> Syncing app.yaml for ${TARGET}..."
+python3 scripts/sync_app_yaml.py "$TARGET"
 
 echo "==> Building frontend (dist/)..."
 npm run build
@@ -181,14 +105,6 @@ if [[ -z "$ENSURE_LAKEBASE" ]]; then
   fi
 fi
 if [[ "$ENSURE_LAKEBASE" == "true" || "$ENSURE_LAKEBASE" == "1" ]]; then
-  RESOLVED_APP_NAME="${APP_NAME:-}"
-  if [[ -z "$RESOLVED_APP_NAME" ]]; then
-    if [[ "$TARGET" == "prod" ]]; then
-      RESOLVED_APP_NAME="data-collector-prod"
-    else
-      RESOLVED_APP_NAME="data-collector-dev"
-    fi
-  fi
   PYTHON_BIN="python3"
   if [[ -x .venv/bin/python ]]; then
     PYTHON_BIN=".venv/bin/python"
@@ -204,13 +120,16 @@ if [[ "$ENSURE_LAKEBASE" == "true" || "$ENSURE_LAKEBASE" == "1" ]]; then
     LAKEBASE_ARGS+=(--profile "$PROFILE")
   fi
   "$PYTHON_BIN" scripts/ensure_app_lakebase_resource.py \
-    --app-name "$RESOLVED_APP_NAME" \
+    --app-name "$APP_NAME" \
     --warehouse-id "$WAREHOUSE_ID" \
     "${LAKEBASE_ARGS[@]}"
 fi
 
 echo "==> Starting app..."
 dbx bundle run data-collector -t "$TARGET" "${VAR_ARGS[@]}"
+
+restore_app_yaml
+trap - EXIT
 
 echo ""
 echo "Done. Open the app from Databricks → Compute → Apps."
