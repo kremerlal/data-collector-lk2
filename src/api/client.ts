@@ -50,6 +50,16 @@ export class ApiAccessDeniedError extends Error {
   }
 }
 
+export class ApiPublishError extends Error {
+  grantSql?: string;
+
+  constructor(message: string, grantSql?: string) {
+    super(message);
+    this.name = 'ApiPublishError';
+    this.grantSql = grantSql;
+  }
+}
+
 type ApiErrorDetail =
   | string
   | {
@@ -57,6 +67,7 @@ type ApiErrorDetail =
       field_errors?: Record<string, string>;
       collection_name?: string;
       admin_emails?: string[];
+      grant_sql?: string;
     };
 
 function parseApiError(status: number, text: string): Error {
@@ -75,6 +86,9 @@ function parseApiError(status: number, text: string): Error {
         );
       }
       if (detail.message) {
+        if (detail.grant_sql) {
+          return new ApiPublishError(detail.message, detail.grant_sql);
+        }
         return new Error(detail.message);
       }
     }
@@ -82,7 +96,11 @@ function parseApiError(status: number, text: string): Error {
       return new Error(detail);
     }
   } catch (err) {
-    if (err instanceof ApiValidationError || err instanceof ApiAccessDeniedError) {
+    if (
+      err instanceof ApiValidationError ||
+      err instanceof ApiAccessDeniedError ||
+      err instanceof ApiPublishError
+    ) {
       throw err;
     }
   }
