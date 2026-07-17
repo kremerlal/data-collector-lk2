@@ -70,6 +70,6 @@ targets:
       root_path: ${var.deploy_folder}/${bundle.name}/${bundle.target}
     variables:
       app_name: data-collector-prod
-      warehouse_id: 62c50dd91fadb932
-      catalog: classic_stable_kremer_catalog
+      warehouse_id: 3c333bc7e0c36cd6
+      catalog: serverless_stable_tgnklq_catalog
       schema: data_collector

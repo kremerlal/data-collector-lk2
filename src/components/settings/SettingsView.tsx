@@ -9,6 +9,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { api } from '../../api/client';
 import type { AppConfig } from '../../types';
+import BrandingAdminPanel from './BrandingAdminPanel';
 
 function ConfigRow({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -54,6 +55,8 @@ export default function SettingsView() {
         </Alert>
       )}
 
+      {config?.is_app_admin && <BrandingAdminPanel />}
+
       <Paper className="page-card" sx={{ p: 2.5, mb: 2 }}>
         <Typography variant="subtitle1" fontWeight={600} gutterBottom>
           Runtime values
@@ -85,7 +88,8 @@ export default function SettingsView() {
           Copy <code>.env.example</code> to <code>.env</code> and set{' '}
           <code>DATABRICKS_HOST</code>, <code>DATABRICKS_TOKEN</code>, and{' '}
           <code>DATABRICKS_WAREHOUSE_ID</code>. Set <code>DEV_USER_EMAIL</code> to your workspace
-          email so local collections match the deployed app.
+          email so local collections match the deployed app. Set <code>APP_ADMIN_EMAILS</code> to
+          your email (comma-separated) to edit app branding in Settings.
         </Typography>
       </Paper>
     </Box>

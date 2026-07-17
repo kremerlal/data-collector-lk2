@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ProjectRole = Literal["admin", "editor", "reader"]
 ProjectStatus = Literal["draft", "published", "archived"]
@@ -31,6 +31,7 @@ FieldType = Literal[
 class UserInfo(BaseModel):
     email: str
     display_name: str
+    is_app_admin: bool = False
 
 
 class ProjectMember(BaseModel):
@@ -138,9 +139,22 @@ class UpdateProjectRequest(BaseModel):
     record_sync_mode: Optional[RecordSyncMode] = None
 
 
+class WorkspaceUser(BaseModel):
+    email: str
+    display_name: str
+
+
 class AddMemberRequest(BaseModel):
     user_email: str
     role: ProjectRole = "reader"
+
+
+class AddMemberResponse(BaseModel):
+    members: list[ProjectMember]
+    app_access_granted: bool = False
+    app_access_note: Optional[str] = None
+    uc_access_granted: bool = False
+    uc_access_note: Optional[str] = None
 
 
 class SaveFieldsRequest(BaseModel):
@@ -312,3 +326,107 @@ class RefineProjectRequest(BaseModel):
     description: Optional[str] = None
     fields: list[FieldDefinition] = Field(default_factory=list)
     lookups: list[LookupProposal] = Field(default_factory=list)
+
+
+_HEX_COLOR = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+_RGB_COLOR = r"^rgba?\([^)]+\)$"
+_LOGO_DATA_URL = r"^data:image/(?:png|jpeg|jpg|svg\+xml);base64,[A-Za-z0-9+/=\s]+$"
+_COLOR_FIELDS = (
+    "primary",
+    "primary_light",
+    "primary_dark",
+    "secondary",
+    "background",
+    "paper",
+    "text_primary",
+    "text_secondary",
+)
+_CHROME_FIELDS = (
+    "header_background",
+    "header_mid",
+    "header_accent",
+    "sidebar_background",
+    "sidebar_mid",
+    "sidebar_end",
+)
+
+
+def _validate_color(value: str) -> str:
+    import re
+
+    trimmed = value.strip()
+    if re.match(_HEX_COLOR, trimmed) or re.match(_RGB_COLOR, trimmed):
+        return trimmed
+    raise ValueError("Expected a hex (#RRGGBB) or rgb/rgba color")
+
+
+def _validate_logo(value: Optional[str]) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    import re
+
+    trimmed = value.strip()
+    if len(trimmed) > 750_000:
+        raise ValueError("Logo must be 500 KB or smaller")
+    if not re.match(_LOGO_DATA_URL, trimmed):
+        raise ValueError("Logo must be a PNG, JPEG, or SVG data URL")
+    return trimmed
+
+
+class BrandingColorSet(BaseModel):
+    primary: str
+    primary_light: str
+    primary_dark: str
+    secondary: str
+    background: str
+    paper: str
+    text_primary: str
+    text_secondary: str
+
+    @field_validator(*_COLOR_FIELDS)
+    @classmethod
+    def _color(cls, value: str) -> str:
+        return _validate_color(value)
+
+
+class BrandingChrome(BaseModel):
+    header_background: str
+    header_mid: str
+    header_accent: str
+    sidebar_background: str
+    sidebar_mid: str
+    sidebar_end: str
+
+    @field_validator(*_CHROME_FIELDS)
+    @classmethod
+    def _chrome_color(cls, value: str) -> str:
+        return _validate_color(value)
+
+
+class BrandingConfig(BaseModel):
+    app_title: str = Field(min_length=1, max_length=120)
+    agency_name: str = Field(min_length=1, max_length=200)
+    logo_data_url: Optional[str] = None
+    chrome: BrandingChrome
+    light: BrandingColorSet
+    dark: BrandingColorSet
+
+    @field_validator("logo_data_url")
+    @classmethod
+    def _logo(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_logo(value)
+
+
+class BrandingUpdateRequest(BaseModel):
+    app_title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    agency_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    logo_data_url: Optional[str] = None
+    clear_logo: bool = False
+    chrome: Optional[BrandingChrome] = None
+    light: Optional[BrandingColorSet] = None
+    dark: Optional[BrandingColorSet] = None
+
+    @field_validator("logo_data_url")
+    @classmethod
+    def _logo(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_logo(value)

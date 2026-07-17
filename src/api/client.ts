@@ -1,7 +1,9 @@
 import { beginBusy, endBusy } from '../statusBus';
 import type {
   ApplyProjectProposalPayload,
+  AddMemberResponse,
   AppConfig,
+  AppBranding,
   BindLookupPayload,
   CreateProjectPayload,
   FieldDefinition,
@@ -21,6 +23,7 @@ import type {
   SyncStagedRecordsResult,
   UcTablePreview,
   UserInfo,
+  WorkspaceUser,
 } from '../types';
 
 const BASE = '/api';
@@ -33,6 +36,75 @@ export class ApiValidationError extends Error {
     this.name = 'ApiValidationError';
     this.fieldErrors = fieldErrors;
   }
+}
+
+export class ApiAccessDeniedError extends Error {
+  collectionName?: string;
+  adminEmails: string[];
+
+  constructor(message: string, collectionName?: string, adminEmails: string[] = []) {
+    super(message);
+    this.name = 'ApiAccessDeniedError';
+    this.collectionName = collectionName;
+    this.adminEmails = adminEmails;
+  }
+}
+
+export class ApiPublishError extends Error {
+  grantSql?: string;
+
+  constructor(message: string, grantSql?: string) {
+    super(message);
+    this.name = 'ApiPublishError';
+    this.grantSql = grantSql;
+  }
+}
+
+type ApiErrorDetail =
+  | string
+  | {
+      message?: string;
+      field_errors?: Record<string, string>;
+      collection_name?: string;
+      admin_emails?: string[];
+      grant_sql?: string;
+    };
+
+function parseApiError(status: number, text: string): Error {
+  try {
+    const json = JSON.parse(text) as { detail?: ApiErrorDetail };
+    const detail = json.detail;
+    if (detail && typeof detail === 'object') {
+      if (detail.field_errors) {
+        return new ApiValidationError(detail.field_errors);
+      }
+      if (status === 403 && detail.admin_emails) {
+        return new ApiAccessDeniedError(
+          detail.message || 'Not a member of this project',
+          detail.collection_name,
+          detail.admin_emails,
+        );
+      }
+      if (detail.message) {
+        if (detail.grant_sql) {
+          return new ApiPublishError(detail.message, detail.grant_sql);
+        }
+        return new Error(detail.message);
+      }
+    }
+    if (typeof detail === 'string') {
+      return new Error(detail);
+    }
+  } catch (err) {
+    if (
+      err instanceof ApiValidationError ||
+      err instanceof ApiAccessDeniedError ||
+      err instanceof ApiPublishError
+    ) {
+      throw err;
+    }
+  }
+  return new Error(text || `API ${status}`);
 }
 
 async function request<T>(
@@ -56,20 +128,7 @@ async function request<T>(
     });
     if (!res.ok) {
       const text = await res.text();
-      try {
-        const json = JSON.parse(text) as {
-          detail?: string | { field_errors?: Record<string, string> };
-        };
-        if (json.detail && typeof json.detail === 'object' && json.detail.field_errors) {
-          throw new ApiValidationError(json.detail.field_errors);
-        }
-        if (typeof json.detail === 'string') {
-          throw new Error(json.detail);
-        }
-      } catch (err) {
-        if (err instanceof ApiValidationError) throw err;
-      }
-      throw new Error(text || `API ${res.status}`);
+      throw parseApiError(res.status, text);
     }
     if (res.status === 204 || res.headers.get('content-length') === '0') {
       return undefined as T;
@@ -92,6 +151,19 @@ async function request<T>(
 export const api = {
   getMe: () => request<UserInfo>('/me', undefined, 'Loading profile…'),
   getConfig: () => request<AppConfig>('/health', undefined, 'Loading config…'),
+  getBranding: () => request<AppBranding>('/branding', undefined, 'Loading branding…'),
+  updateBranding: (body: Partial<AppBranding> & { clear_logo?: boolean }) =>
+    request<AppBranding>(
+      '/branding',
+      { method: 'PUT', body: JSON.stringify(body) },
+      'Saving branding…',
+    ),
+  resetBranding: (preset = 'databricks') =>
+    request<AppBranding>(
+      `/branding/reset?preset=${encodeURIComponent(preset)}`,
+      { method: 'POST' },
+      'Applying palette…',
+    ),
 
   listUcCatalogSchemas: (catalog: string) =>
     request<string[]>(`/uc/schemas?catalog=${encodeURIComponent(catalog)}`, undefined, 'Loading schemas…'),
@@ -125,8 +197,14 @@ export const api = {
     request<void>(`/projects/${id}`, { method: 'DELETE' }, 'Deleting collection…'),
 
   listMembers: (id: string) => request<ProjectMember[]>(`/projects/${id}/members`, undefined, 'Loading members…'),
+  searchWorkspaceUsers: (id: string, q: string) =>
+    request<WorkspaceUser[]>(
+      `/projects/${id}/workspace-users?q=${encodeURIComponent(q)}`,
+      undefined,
+      'Searching workspace users…',
+    ),
   addMember: (id: string, user_email: string, role: string) =>
-    request<ProjectMember[]>(
+    request<AddMemberResponse>(
       `/projects/${id}/members`,
       { method: 'POST', body: JSON.stringify({ user_email, role }) },
       'Adding member…',

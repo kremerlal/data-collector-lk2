@@ -43,6 +43,13 @@ export default function StorageSettingsPanel({ project, onSaved }: StorageSettin
   const isDraft = project.status === 'draft';
   const isLakebase = storageType === 'lakebase';
   const isUc = (isDraft ? storageType : project.storage_type) === 'uc_delta';
+  const ucAccessMode = appConfig?.uc_data_access_mode ?? 'hybrid';
+  const ucAccessModeLabel =
+    ucAccessMode === 'hybrid'
+      ? 'Hybrid (app SP for managed tables; user token for existing UC tables)'
+      : ucAccessMode === 'service_principal'
+        ? 'Service principal (app runs all UC data SQL)'
+        : 'User on-behalf-of (all UC data SQL as signed-in user)';
 
   useEffect(() => {
     setStorageType(project.storage_type);
@@ -165,6 +172,20 @@ export default function StorageSettingsPanel({ project, onSaved }: StorageSettin
           </>
         )}
       </Typography>
+
+      {isUc && appConfig && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          UC data access mode: <strong>{ucAccessModeLabel}</strong>
+          {ucAccessMode === 'hybrid' && (
+            <>
+              {' '}
+              Members on app-created tables get UC grants automatically on publish or when added.
+              Existing UC tables still require the user&apos;s own UC access (or SP MANAGE on the
+              table for auto-grant).
+            </>
+          )}
+        </Alert>
+      )}
 
       {isDraft && (
         <TextField

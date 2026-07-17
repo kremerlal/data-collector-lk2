@@ -107,6 +107,11 @@ TABLES = {
         model_endpoint STRING,
         error STRING,
         created_at TIMESTAMP NOT NULL""",
+    "app_settings": """
+        setting_key STRING NOT NULL,
+        value_json STRING NOT NULL,
+        updated_at TIMESTAMP NOT NULL,
+        updated_by STRING NOT NULL""",
 }
 
 MIGRATIONS: list[str] = []

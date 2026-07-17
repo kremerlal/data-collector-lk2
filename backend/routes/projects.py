@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 
-from backend import audit_repository, config, repository
+from backend import audit_repository, config, repository, uc_grants
 from backend import auth, lookup_repository
 from backend.csv_util import parse_records_csv, records_to_csv
 from backend.deps import assert_role, project_to_summary, require_role
+from backend.sql_errors import SqlPermissionError, UserAuthorizationRequiredError
 from backend.sql_util import request_connection, request_connections
 from backend.validation import build_lookup_allowed, validate_record_values
 from backend.timing import track_request
 from backend.models import (
     AddMemberRequest,
+    AddMemberResponse,
     CreateProjectRequest,
     CreateRecordRequest,
     FieldDefinition,
@@ -26,6 +28,7 @@ from backend.models import (
     SyncStagedRecordsResult,
     UpdateProjectRequest,
     UpdateRecordRequest,
+    WorkspaceUser,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -283,6 +286,20 @@ def update_project(project_id: str, body: UpdateProjectRequest, request: Request
     return _detail(project_id, role)
 
 
+@router.get("/{project_id}/workspace-users", response_model=list[WorkspaceUser])
+def search_workspace_users(project_id: str, request: Request, q: str = ""):
+    require_role(project_id, request, "admin")
+    try:
+        from backend import workspace_service
+
+        return [WorkspaceUser(**row) for row in workspace_service.list_workspace_users(q)]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not load workspace users: {exc}",
+        ) from exc
+
+
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: str, request: Request):
     require_role(project_id, request, "admin")
@@ -300,11 +317,20 @@ def list_members(project_id: str, request: Request):
     return repository.list_members(project_id)
 
 
-@router.post("/{project_id}/members", response_model=list[ProjectMember], status_code=201)
+@router.post("/{project_id}/members", response_model=AddMemberResponse, status_code=201)
 def add_member(project_id: str, body: AddMemberRequest, request: Request):
     user, _ = require_role(project_id, request, "admin")
-    repository.add_member(project_id, body.user_email, body.role, user)
-    return repository.list_members(project_id)
+    uc_granted, uc_note = repository.add_member(project_id, body.user_email, body.role, user)
+    from backend import workspace_service
+
+    granted, note = workspace_service.ensure_app_user_access(body.user_email)
+    return AddMemberResponse(
+        members=repository.list_members(project_id),
+        app_access_granted=granted,
+        app_access_note=note,
+        uc_access_granted=uc_granted,
+        uc_access_note=uc_note,
+    )
 
 
 @router.delete("/{project_id}/members/{user_email}", response_model=list[ProjectMember])
@@ -331,6 +357,35 @@ def save_fields(project_id: str, body: SaveFieldsRequest, request: Request):
     return repository.list_fields(project_id)
 
 
+def _publish_permission_detail(
+    project_id: str,
+    user: str,
+    message: str,
+    *,
+    failure_kind: uc_grants.PublishFailureKind = "generic",
+) -> dict[str, str]:
+    project = repository.get_project(project_id)
+    detail: dict[str, str] = {"message": message}
+    if project and project.get("storage_type") == "uc_delta":
+        grant_sql = uc_grants.grant_sql_for_publish_failure(
+            project,
+            user,
+            failure_kind=failure_kind,
+        )
+        if grant_sql:
+            detail["grant_sql"] = grant_sql
+    return detail
+
+
+def _is_publish_permission_failure(exc: ValueError) -> bool:
+    msg = str(exc).lower()
+    return (
+        "does not exist or is not visible" in msg
+        or "permission" in msg
+        or "unity catalog" in msg
+    )
+
+
 @router.post("/{project_id}/publish", response_model=ProjectDetail)
 def publish_project(project_id: str, request: Request, background_tasks: BackgroundTasks):
     user, role = require_role(project_id, request, "admin")
@@ -339,7 +394,37 @@ def publish_project(project_id: str, request: Request, background_tasks: Backgro
             with request_connections(request):
                 repository.publish_project(project_id, user)
                 timer.mark("publish_ms")
+        except SqlPermissionError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=_publish_permission_detail(
+                    project_id,
+                    user,
+                    str(exc),
+                    failure_kind="permission_denied",
+                ),
+            ) from exc
+        except UserAuthorizationRequiredError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail=_publish_permission_detail(
+                    project_id,
+                    user,
+                    str(exc),
+                    failure_kind="user_authorization",
+                ),
+            ) from exc
         except ValueError as exc:
+            if _is_publish_permission_failure(exc):
+                raise HTTPException(
+                    status_code=400,
+                    detail=_publish_permission_detail(
+                        project_id,
+                        user,
+                        str(exc),
+                        failure_kind="table_not_visible",
+                    ),
+                ) from exc
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         from backend import genie_service
 
@@ -377,7 +462,7 @@ def list_records(
             email = auth.get_user_email(request)
             project, role = repository.get_project_with_member(project_id, email)
             timer.mark("auth_project_ms")
-            assert_role(role, "reader")
+            assert_role(role, "reader", project_id)
             if not project or project["status"] != "published":
                 timer.set_extra(project_id=project_id, row_count=0, storage_type=None)
                 result: list[RecordRow] = []
@@ -412,7 +497,7 @@ def create_record(project_id: str, body: CreateRecordRequest, request: Request, 
             email = auth.get_user_email(request)
             project, role = repository.get_project_with_member(project_id, email)
             timer.mark("auth_project_ms")
-            assert_role(role, "editor")
+            assert_role(role, "editor", project_id)
             if not project or project["status"] != "published":
                 raise HTTPException(
                     status_code=400,
