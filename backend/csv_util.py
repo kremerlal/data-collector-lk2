@@ -68,16 +68,18 @@ def map_rows_to_lookup_columns(
     return mapped
 
 
+def _csv_dialect(sample: str) -> csv.Dialect:
+    try:
+        return csv.Sniffer().sniff(sample[:2048], delimiters=",;\t")
+    except csv.Error:
+        return csv.excel
+
+
 def _read_csv_rows(csv_text: str, *, keep_empty: bool = False) -> list[list[str]]:
     text = csv_text.strip()
     if not text:
         raise ValueError("CSV is empty")
-    sample = text[:2048]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
-    reader = csv.reader(io.StringIO(text), dialect)
+    reader = csv.reader(io.StringIO(text), _csv_dialect(text))
     rows = list(reader)
     if keep_empty:
         return rows
@@ -278,20 +280,44 @@ def infer_fields_from_csv(
     csv_text: str,
     *,
     header_row: int = 1,
+    max_inference_rows: int = 5000,
 ) -> tuple[list[FieldDefinition], list[dict[str, Any]], int, str]:
     """Infer draft form fields from CSV headers and sample cell values."""
-    parsed_rows = _read_csv_rows(csv_text, keep_empty=True)
-    if not parsed_rows:
+    text = csv_text.strip()
+    if not text:
         raise ValueError("CSV is empty")
+    if header_row < 1:
+        raise ValueError("Header row must be at least 1")
 
-    header_idx = _header_row_index(header_row, len(parsed_rows))
-    headers = parsed_rows[header_idx]
-    if not any(cell.strip() for cell in headers):
-        raise ValueError(f"Row {header_row} does not contain column headers")
+    reader = csv.reader(io.StringIO(text), _csv_dialect(text))
+    headers: list[str] | None = None
+    data_rows_for_inference: list[list[str]] = []
+    data_row_count = 0
+    logical_row = 0
+
+    for row in reader:
+        logical_row += 1
+        if logical_row < header_row:
+            continue
+        if logical_row == header_row:
+            headers = row
+            if not any(cell.strip() for cell in headers):
+                raise ValueError(f"Row {header_row} does not contain column headers")
+            continue
+        if not any(cell.strip() for cell in row):
+            continue
+        data_row_count += 1
+        if len(data_rows_for_inference) < max_inference_rows:
+            data_rows_for_inference.append(row)
+
+    if headers is None:
+        raise ValueError(
+            f"Header row {header_row} is beyond the file ({logical_row} row(s))"
+        )
 
     keys = [_column_key(h, i) for i, h in enumerate(headers)]
-    data_rows = [row for row in parsed_rows[header_idx + 1 :] if any(cell.strip() for cell in row)]
-    row_count = len(data_rows)
+    data_rows = data_rows_for_inference
+    row_count = data_row_count
 
     fields: list[FieldDefinition] = []
     for index, (key, header) in enumerate(zip(keys, headers)):
