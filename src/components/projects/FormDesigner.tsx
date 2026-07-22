@@ -178,34 +178,13 @@ const FieldDesignerRow = memo(function FieldDesignerRow({
               value={(field.config_json?.value_column as string) || lookupColumns[0]?.key || ''}
               onChange={(e) => {
                 const valueColumn = e.target.value;
-                const displayColumn =
-                  (field.config_json?.display_column as string | undefined) ||
-                  (field.config_json?.value_column as string | undefined) ||
-                  valueColumn;
                 onPatch({
                   config_json: mergeConfig(field, {
                     value_column: valueColumn,
-                    display_column: displayColumn,
+                    display_column: valueColumn,
                   }),
                 });
               }}
-            >
-              {lookupColumns.map((column) => (
-                <MenuItem key={column.key} value={column.key}>
-                  {column.label || column.key}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Display column"
-              disabled={readOnly || lookupColumns.length === 0}
-              value={(field.config_json?.display_column as string) || lookupColumns[0]?.key || ''}
-              onChange={(e) =>
-                onPatch({
-                  config_json: mergeConfig(field, { display_column: e.target.value }),
-                })
-              }
             >
               {lookupColumns.map((column) => (
                 <MenuItem key={column.key} value={column.key}>
